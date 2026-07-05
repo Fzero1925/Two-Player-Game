@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Room, Player } from "./src/types.js";
 import { GoogleGenAI } from "@google/genai";
+import { getInitialGameState, isValidGameType } from "./src/games/definitions.js";
 
 const app = express();
 const PORT = 3000;
@@ -23,64 +24,6 @@ function getGenAI() {
     });
   }
   return aiInstance;
-}
-
-// Word list for Pictionary
-const PICTIONARY_WORDS = [
-  { word: "猫", category: "动物" },
-  { word: "狗", category: "动物" },
-  { word: "熊猫", category: "动物" },
-  { word: "兔子", category: "动物" },
-  { word: "老虎", category: "动物" },
-  { word: "大象", category: "动物" },
-  { word: "恐龙", category: "动物" },
-  { word: "企鹅", category: "动物" },
-  { word: "海豚", category: "动物" },
-  { word: "章鱼", category: "动物" },
-  { word: "小鸟", category: "动物" },
-  { word: "长颈鹿", category: "动物" },
-  { word: "苹果", category: "水果" },
-  { word: "香蕉", category: "水果" },
-  { word: "西瓜", category: "水果" },
-  { word: "草莓", category: "水果" },
-  { word: "葡萄", category: "水果" },
-  { word: "橙子", category: "水果" },
-  { word: "汉堡", category: "食物" },
-  { word: "比萨", category: "食物" },
-  { word: "冰激凌", category: "食物" },
-  { word: "面条", category: "食物" },
-  { word: "蛋糕", category: "食物" },
-  { word: "汽车", category: "交通工具" },
-  { word: "自行车", category: "交通工具" },
-  { word: "飞机", category: "交通工具" },
-  { word: "轮船", category: "交通工具" },
-  { word: "火箭", category: "交通工具" },
-  { word: "手机", category: "电子产品" },
-  { word: "电脑", category: "电子产品" },
-  { word: "电视", category: "电子产品" },
-  { word: "太阳", category: "大自然" },
-  { word: "月亮", category: "大自然" },
-  { word: "星星", category: "大自然" },
-  { word: "彩虹", category: "大自然" },
-  { word: "云朵", category: "大自然" },
-  { word: "雨伞", category: "生活用品" },
-  { word: "眼镜", category: "生活用品" },
-  { word: "帽子", category: "服饰" },
-  { word: "鞋子", category: "服饰" },
-  { word: "书包", category: "生活用品" },
-  { word: "杯子", category: "生活用品" },
-  { word: "铅笔", category: "生活用品" },
-  { word: "吉他", category: "乐器" },
-  { word: "钢琴", category: "乐器" },
-  { word: "房子", category: "建筑物" },
-  { word: "雪人", category: "大自然" },
-  { word: "花朵", category: "大自然" },
-  { word: "大树", category: "大自然" },
-  { word: "气球", category: "玩具" }
-];
-
-function getRandomWord() {
-  return PICTIONARY_WORDS[Math.floor(Math.random() * PICTIONARY_WORDS.length)];
 }
 
 // In-memory Room storage for Local Fallback Mode
@@ -132,6 +75,9 @@ app.post("/api/rooms", (req, res) => {
   if (!game_type || !player_id || !name) {
     return res.status(400).json({ error: "Missing required fields" });
   }
+  if (!isValidGameType(game_type)) {
+    return res.status(400).json({ error: `未知的游戏类型: ${game_type}` });
+  }
 
   const roomCode = generateRoomCode();
   const hostPlayer: Player = {
@@ -142,9 +88,6 @@ app.post("/api/rooms", (req, res) => {
     ready: false,
   };
 
-  const isPictionary = game_type === "pictionary";
-  const pWord = isPictionary ? getRandomWord() : null;
-
   const newRoom: Room = {
     room_code: roomCode,
     game_type,
@@ -153,20 +96,7 @@ app.post("/api/rooms", (req, res) => {
       host: hostPlayer,
       guest: null,
     },
-    game_state: isPictionary
-      ? {
-          drawer: "host",
-          secret_word: pWord?.word || "猫",
-          hint: pWord?.category || "动物",
-          lines: [],
-          chat: [],
-          winner: null,
-        }
-      : {
-          board: Array(15).fill(null).map(() => Array(15).fill(0)),
-          current_turn: "host",
-          winner: null,
-        },
+    game_state: getInitialGameState(game_type),
     created_at: new Date().toISOString(),
   };
 
@@ -305,23 +235,7 @@ app.post("/api/rooms/:code/ready", (req, res) => {
   // Auto-start game if both players are ready
   if (room.players.host?.ready && room.players.guest?.ready) {
     room.status = "playing";
-    if (room.game_type === "pictionary") {
-      const pWord = getRandomWord();
-      room.game_state = {
-        drawer: "host",
-        secret_word: pWord.word,
-        hint: pWord.category,
-        lines: [],
-        chat: [],
-        winner: null,
-      };
-    } else {
-      room.game_state = {
-        board: Array(15).fill(null).map(() => Array(15).fill(0)),
-        current_turn: "host",
-        winner: null,
-      };
-    }
+    room.game_state = getInitialGameState(room.game_type);
   }
 
   if (stateChanged) {

@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Room, Player, RoomPlayers } from "../types.js";
+import { getInitialGameState, isValidGameType } from "../games/definitions.js";
 
 // Determine if Supabase credentials are configured in environment variables
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
@@ -71,6 +72,10 @@ export const roomManager = {
    * Create a new room
    */
   async createRoom(gameType: string, playerName: string): Promise<Room> {
+    if (!isValidGameType(gameType)) {
+      throw new Error(`未知的游戏类型: ${gameType}`);
+    }
+
     const { id: playerId } = getOrCreatePlayer();
 
     if (isSupabaseMode && supabase) {
@@ -83,11 +88,10 @@ export const roomManager = {
         ready: false,
       };
 
-      const defaultGomokuState = {
-        board: Array(15).fill(null).map(() => Array(15).fill(0)),
-        current_turn: "host",
-        winner: null,
-      };
+      // BUGFIX: this used to always create a Gomoku board here, regardless
+      // of gameType, so a freshly-created Pictionary room in Supabase mode
+      // silently got the wrong game_state. Now it asks the shared registry.
+      const initialGameState = getInitialGameState(gameType);
 
       const newRoom: Room = {
         room_code: roomCode,
@@ -97,7 +101,7 @@ export const roomManager = {
           host: hostPlayer,
           guest: null,
         },
-        game_state: defaultGomokuState,
+        game_state: initialGameState,
       };
 
       const { data, error } = await supabase
@@ -107,7 +111,7 @@ export const roomManager = {
           game_type: gameType,
           status: "waiting",
           players: newRoom.players,
-          game_state: defaultGomokuState,
+          game_state: initialGameState,
         })
         .select()
         .single();
@@ -343,11 +347,10 @@ export const roomManager = {
         // Check if both players are now ready to start the match
         if (players.host?.ready && players.guest?.ready) {
           updateData.status = "playing";
-          updateData.game_state = {
-            board: Array(15).fill(null).map(() => Array(15).fill(0)),
-            current_turn: "host",
-            winner: null,
-          };
+          // BUGFIX: this used to hardcode a fresh Gomoku board here too,
+          // so starting a Pictionary match in Supabase mode reset it to
+          // the wrong game_state. Now uses the room's real game_type.
+          updateData.game_state = getInitialGameState(room.game_type);
         }
 
         const { data: updatedRoom, error: updateError } = await supabase
