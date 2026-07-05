@@ -476,22 +476,23 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
         <div className="col-span-1 lg:col-span-8 flex flex-col items-center">
           
           {/* Main Board Container */}
-          <div className="relative w-full aspect-square max-w-[min(100vw-32px,550px)] bg-amber-100 border border-amber-950/20 rounded-2xl shadow-lg overflow-hidden p-3 md:p-5">
+          <div className="relative w-full aspect-square max-w-[min(100vw-32px,550px)] bg-amber-100 border border-amber-950/20 rounded-2xl shadow-lg overflow-hidden">
             
-            {/* Grid Line Visuals */}
-            <div className="absolute inset-3 md:inset-5 grid grid-cols-14 grid-rows-14 pointer-events-none">
-              {/* Lines rendering */}
+            {/* The single coordinate system container for lines, stars, and pieces */}
+            <div className="absolute inset-4 md:inset-6">
+              
+              {/* Grid Line Visuals */}
               {Array(15).fill(null).map((_, r) => (
                 <div
                   key={`hl-${r}`}
-                  className="absolute left-0 right-0 border-t border-amber-950/15"
+                  className="absolute left-0 right-0 border-t border-amber-950/20"
                   style={{ top: `${(r / 14) * 100}%` }}
                 />
               ))}
               {Array(15).fill(null).map((_, c) => (
                 <div
                   key={`vl-${c}`}
-                  className="absolute top-0 bottom-0 border-l border-amber-950/15"
+                  className="absolute top-0 bottom-0 border-l border-amber-950/20"
                   style={{ left: `${(c / 14) * 100}%` }}
                 />
               ))}
@@ -507,10 +508,8 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
                   }}
                 />
               ))}
-            </div>
 
-            {/* Clickable Intersections Container */}
-            <div className="relative w-full h-full grid grid-cols-15 grid-rows-15">
+              {/* Clickable Intersections & Pieces */}
               {Array(15).fill(null).map((_, r) =>
                 Array(15).fill(null).map((_, c) => {
                   const piece = gameState?.board?.[r]?.[c] || 0;
@@ -519,12 +518,18 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
                   return (
                     <div
                       key={`int-${r}-${c}`}
-                      className="relative flex items-center justify-center cursor-pointer select-none group"
+                      className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-pointer select-none group"
+                      style={{
+                        top: `${(r / 14) * 100}%`,
+                        left: `${(c / 14) * 100}%`,
+                        width: `${(1 / 14) * 100}%`,
+                        height: `${(1 / 14) * 100}%`,
+                      }}
                       onClick={() => handleCellClick(r, c)}
                     >
                       {/* Invisible hover overlay for tap guidance */}
                       {room.status === "playing" && isMyTurn && piece === 0 && (
-                        <div className="absolute w-4/5 h-4/5 rounded-full bg-amber-950/10 scale-0 group-hover:scale-100 transition-transform duration-150" />
+                        <div className="absolute w-4/5 h-4/5 rounded-full bg-amber-950/15 scale-0 group-hover:scale-100 transition-transform duration-150" />
                       )}
 
                       {/* Render Piece with animation */}
@@ -533,7 +538,7 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
                           initial={{ scale: 0.1, y: -20, opacity: 0 }}
                           animate={{ scale: 1, y: 0, opacity: 1 }}
                           transition={{ type: "spring", stiffness: 350, damping: 20 }}
-                          className={`w-4/5 h-4/5 rounded-full shadow flex items-center justify-center relative ${
+                          className={`w-[85%] h-[85%] rounded-full shadow flex items-center justify-center relative ${
                             piece === 1
                               ? "bg-gradient-to-br from-slate-800 to-slate-950 border border-slate-900"
                               : "bg-gradient-to-br from-white to-slate-100 border border-slate-300"

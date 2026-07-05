@@ -8,6 +8,7 @@ import {
 } from "./lib/roomManager.js";
 import { Room } from "./types.js";
 import GomokuGame from "./components/GomokuGame.js";
+import PictionaryGame from "./components/PictionaryGame.js";
 import {
   User,
   Users,
@@ -66,6 +67,7 @@ export default function App() {
     setError(null);
     try {
       const p = getOrCreatePlayer();
+      const isPictionary = gameType === "pictionary";
       const singleRoom: Room = {
         room_code: "SINGLE",
         game_type: gameType,
@@ -86,11 +88,20 @@ export default function App() {
             ready: true,
           },
         },
-        game_state: {
-          board: Array(15).fill(null).map(() => Array(15).fill(0)),
-          current_turn: "host",
-          winner: null,
-        }
+        game_state: isPictionary
+          ? {
+              drawer: "host",
+              secret_word: "猫",
+              hint: "动物",
+              lines: [],
+              chat: [],
+              winner: null,
+            }
+          : {
+              board: Array(15).fill(null).map(() => Array(15).fill(0)),
+              current_turn: "host",
+              winner: null,
+            }
       };
       setActiveRoom(singleRoom);
       setPlayerRole("host");
@@ -184,7 +195,16 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.25 }}
             >
-              <GomokuGame room={activeRoom} role={playerRole} onLeave={handleLeaveRoom} />
+              {activeRoom.game_type === "pictionary" ? (
+                <PictionaryGame
+                  room={activeRoom}
+                  role={playerRole}
+                  onLeave={handleLeaveRoom}
+                  roomManager={roomManager}
+                />
+              ) : (
+                <GomokuGame room={activeRoom} role={playerRole} onLeave={handleLeaveRoom} />
+              )}
             </motion.div>
           ) : (
             // ==========================================
@@ -361,27 +381,41 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* GAME 2: Pictionary (你画我猜 - Coming Soon) */}
-                  <div className="bg-white/60 border border-slate-200 p-5 rounded-2xl flex flex-col justify-between h-full opacity-70">
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-sm">
-                          画
-                        </div>
-                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2.5 py-0.5 rounded-full font-semibold">
-                          即将推出
-                        </span>
+                  {/* GAME 2: Pictionary (你画我猜) */}
+                  <div className="group bg-white border border-slate-200 hover:border-indigo-500/30 p-5 rounded-2xl shadow-sm hover:shadow-md transition duration-200 flex flex-col h-full relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-indigo-500/5 to-transparent rounded-bl-full pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-50/80 text-indigo-600 flex items-center justify-center font-bold">
+                        画
                       </div>
-                      <h3 className="text-sm font-bold text-slate-500 mb-1">
-                        你画我猜 (Pictionary)
-                      </h3>
-                      <p className="text-xs text-slate-400 leading-relaxed">
-                        支持实时手绘板同步、画笔颜色/大小调节、文字聊天室交互。独立房间管理，专为双人趣味对战与互动打造。
-                      </p>
+                      <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2.5 py-0.5 rounded-full font-semibold tracking-wider">
+                        联机对局
+                      </span>
                     </div>
-                    <div className="mt-6 border-t border-slate-100 pt-4 flex items-center gap-1.5 text-[10px] text-slate-400">
-                      <Compass size={12} />
-                      <span>正在规划中，期待后续版本更新</span>
+
+                    <h3 className="text-base font-bold text-slate-800 mb-1 group-hover:text-indigo-600 transition">
+                      你画我猜 (Pictionary)
+                    </h3>
+                    <p className="text-xs text-slate-500 leading-relaxed flex-grow mb-6">
+                      支持实时手绘板同步、画笔颜色与粗细调节、多人聊天室实时猜测。单人练习模式更提供智能 AI (Gemini) 实时图像辨认与精准猜测！
+                    </p>
+
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => handleCreateRoom("pictionary")}
+                        disabled={loading}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition duration-150 flex items-center justify-center gap-1.5"
+                      >
+                        {loading ? "正在创建..." : "创建专属绘画房间"}
+                      </button>
+                      <button
+                        onClick={() => handleStartSinglePlayer("pictionary")}
+                        disabled={loading}
+                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-bold rounded-xl transition duration-150 flex items-center justify-center gap-1.5"
+                      >
+                        单人练习 (画作 AI 识别)
+                      </button>
                     </div>
                   </div>
 

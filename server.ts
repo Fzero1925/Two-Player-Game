@@ -2,11 +2,86 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Room, Player } from "./src/types.js";
+import { GoogleGenAI } from "@google/genai";
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // Increased limit to receive base64 drawings safely
+
+// Lazy-initialized Gemini API client
+let aiInstance: GoogleGenAI | null = null;
+function getGenAI() {
+  if (!aiInstance && process.env.GEMINI_API_KEY) {
+    aiInstance = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return aiInstance;
+}
+
+// Word list for Pictionary
+const PICTIONARY_WORDS = [
+  { word: "猫", category: "动物" },
+  { word: "狗", category: "动物" },
+  { word: "熊猫", category: "动物" },
+  { word: "兔子", category: "动物" },
+  { word: "老虎", category: "动物" },
+  { word: "大象", category: "动物" },
+  { word: "恐龙", category: "动物" },
+  { word: "企鹅", category: "动物" },
+  { word: "海豚", category: "动物" },
+  { word: "章鱼", category: "动物" },
+  { word: "小鸟", category: "动物" },
+  { word: "长颈鹿", category: "动物" },
+  { word: "苹果", category: "水果" },
+  { word: "香蕉", category: "水果" },
+  { word: "西瓜", category: "水果" },
+  { word: "草莓", category: "水果" },
+  { word: "葡萄", category: "水果" },
+  { word: "橙子", category: "水果" },
+  { word: "汉堡", category: "食物" },
+  { word: "比萨", category: "食物" },
+  { word: "冰激凌", category: "食物" },
+  { word: "面条", category: "食物" },
+  { word: "蛋糕", category: "食物" },
+  { word: "汽车", category: "交通工具" },
+  { word: "自行车", category: "交通工具" },
+  { word: "飞机", category: "交通工具" },
+  { word: "轮船", category: "交通工具" },
+  { word: "火箭", category: "交通工具" },
+  { word: "手机", category: "电子产品" },
+  { word: "电脑", category: "电子产品" },
+  { word: "电视", category: "电子产品" },
+  { word: "太阳", category: "大自然" },
+  { word: "月亮", category: "大自然" },
+  { word: "星星", category: "大自然" },
+  { word: "彩虹", category: "大自然" },
+  { word: "云朵", category: "大自然" },
+  { word: "雨伞", category: "生活用品" },
+  { word: "眼镜", category: "生活用品" },
+  { word: "帽子", category: "服饰" },
+  { word: "鞋子", category: "服饰" },
+  { word: "书包", category: "生活用品" },
+  { word: "杯子", category: "生活用品" },
+  { word: "铅笔", category: "生活用品" },
+  { word: "吉他", category: "乐器" },
+  { word: "钢琴", category: "乐器" },
+  { word: "房子", category: "建筑物" },
+  { word: "雪人", category: "大自然" },
+  { word: "花朵", category: "大自然" },
+  { word: "大树", category: "大自然" },
+  { word: "气球", category: "玩具" }
+];
+
+function getRandomWord() {
+  return PICTIONARY_WORDS[Math.floor(Math.random() * PICTIONARY_WORDS.length)];
+}
 
 // In-memory Room storage for Local Fallback Mode
 const rooms: Record<string, Room> = {};
@@ -67,6 +142,9 @@ app.post("/api/rooms", (req, res) => {
     ready: false,
   };
 
+  const isPictionary = game_type === "pictionary";
+  const pWord = isPictionary ? getRandomWord() : null;
+
   const newRoom: Room = {
     room_code: roomCode,
     game_type,
@@ -75,11 +153,20 @@ app.post("/api/rooms", (req, res) => {
       host: hostPlayer,
       guest: null,
     },
-    game_state: {
-      board: Array(15).fill(null).map(() => Array(15).fill(0)),
-      current_turn: "host",
-      winner: null,
-    },
+    game_state: isPictionary
+      ? {
+          drawer: "host",
+          secret_word: pWord?.word || "猫",
+          hint: pWord?.category || "动物",
+          lines: [],
+          chat: [],
+          winner: null,
+        }
+      : {
+          board: Array(15).fill(null).map(() => Array(15).fill(0)),
+          current_turn: "host",
+          winner: null,
+        },
     created_at: new Date().toISOString(),
   };
 
@@ -218,12 +305,23 @@ app.post("/api/rooms/:code/ready", (req, res) => {
   // Auto-start game if both players are ready
   if (room.players.host?.ready && room.players.guest?.ready) {
     room.status = "playing";
-    // Reset board
-    room.game_state = {
-      board: Array(15).fill(null).map(() => Array(15).fill(0)),
-      current_turn: "host",
-      winner: null,
-    };
+    if (room.game_type === "pictionary") {
+      const pWord = getRandomWord();
+      room.game_state = {
+        drawer: "host",
+        secret_word: pWord.word,
+        hint: pWord.category,
+        lines: [],
+        chat: [],
+        winner: null,
+      };
+    } else {
+      room.game_state = {
+        board: Array(15).fill(null).map(() => Array(15).fill(0)),
+        current_turn: "host",
+        winner: null,
+      };
+    }
   }
 
   if (stateChanged) {
@@ -266,6 +364,47 @@ app.post("/api/rooms/:code/heartbeat", (req, res) => {
   }
 
   res.json({ success: true });
+});
+
+// 5.5. AI Guess Drawing (Gemini API)
+app.post("/api/pictionary/ai-guess", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "缺少图像数据" });
+    }
+
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+
+    const aiClient = getGenAI();
+    if (!aiClient) {
+      const fallbacks = ["苹果", "猫", "房子", "太阳", "气球", "雨伞", "小树", "气球"];
+      const guess = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+      return res.json({ guess: `${guess} (本地随机猜测)` });
+    }
+
+    const imagePart = {
+      inlineData: {
+        mimeType: "image/png",
+        data: base64Data,
+      },
+    };
+
+    const textPart = {
+      text: "你正在玩一个'你画我猜'的游戏。请仔细看这幅由玩家绘制的手绘简笔画，推测它是画的什么。请直接返回你最可能的猜测（例如：苹果、猫、自行车、飞机），字数要极简，通常是1-3个字词，不要带任何废话、标点符号、或前缀。",
+    };
+
+    const response = await aiClient.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: { parts: [imagePart, textPart] },
+    });
+
+    const guess = response.text ? response.text.trim().replace(/[。.!?！？\s]/g, "") : "不确定";
+    res.json({ guess });
+  } catch (err: any) {
+    console.error("Gemini API error:", err);
+    res.status(500).json({ error: "AI 猜测失败", details: err.message });
+  }
 });
 
 // 6. Server-Sent Events (SSE) Stream to listen for real-time room changes

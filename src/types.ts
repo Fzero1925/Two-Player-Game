@@ -31,7 +31,7 @@ export interface GomokuState {
   winner: 'host' | 'guest' | 'draw' | null;
 }
 
-export type GameType = 'gomoku';
+export type GameType = 'gomoku' | 'pictionary';
 
 export interface RoomConfig {
   gameType: GameType;
