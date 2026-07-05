@@ -18,6 +18,11 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
 
   // Maintain local references and subscribe to changes
   useEffect(() => {
+    if (initialRoom.room_code === "SINGLE") {
+      setRoom(initialRoom);
+      return;
+    }
+
     const unsubscribe = roomManager.subscribeToRoom(
       initialRoom.room_code,
       (updatedRoom) => {
@@ -37,6 +42,8 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
 
   // Periodic Heartbeat check (every 4 seconds) to announce presence
   useEffect(() => {
+    if (room.room_code === "SINGLE") return;
+
     roomManager.sendHeartbeat(room.room_code).catch(console.error);
 
     const interval = setInterval(() => {
@@ -54,10 +61,11 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
   const isSpectator = role === "spectator";
 
   const hostOnline = isPlayerOnline(players.host);
-  const guestOnline = isPlayerOnline(players.guest);
+  const guestOnline = room.room_code === "SINGLE" ? true : isPlayerOnline(players.guest);
 
   // Check if either partner is offline
   const opponentOffline =
+    room.room_code !== "SINGLE" &&
     room.status === "playing" &&
     ((isHost && !guestOnline) || (isGuest && !hostOnline));
 
@@ -66,6 +74,152 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
     room.status === "playing" &&
     ((gameState?.current_turn === "host" && isHost) ||
       (gameState?.current_turn === "guest" && isGuest));
+
+  // AI Logic for Single Player Mode
+  const makeAiMove = () => {
+    if (!gameState || room.status !== "playing" || gameState.winner) return;
+    const board = gameState.board;
+    
+    // Find empty spots
+    const emptyCells: { r: number; c: number }[] = [];
+    for (let r = 0; r < 15; r++) {
+      for (let c = 0; c < 15; c++) {
+        if (board[r][c] === 0) {
+          emptyCells.push({ r, c });
+        }
+      }
+    }
+
+    if (emptyCells.length === 0) return;
+
+    // First turn center-biased play
+    if (emptyCells.length === 225) {
+      handleAiPlacePiece(7, 7);
+      return;
+    }
+
+    // Heuristic line evaluation scorer
+    const getLineScore = (line: number[], aiColor: number, playerColor: number): number => {
+      let aiCount = 0;
+      let playerCount = 0;
+      for (const cell of line) {
+        if (cell === aiColor) aiCount++;
+        else if (cell === playerColor) playerCount++;
+      }
+
+      if (aiCount > 0 && playerCount > 0) return 0; // Blocked completely
+      if (aiCount === 4) return 100000;
+      if (playerCount === 4) return 50000; // Block player's immediate win
+      if (aiCount === 3) return 8000;
+      if (playerCount === 3) return 4000;  // Block player's 3-in-a-row
+      if (aiCount === 2) return 1000;
+      if (playerCount === 2) return 500;
+      if (aiCount === 1) return 100;
+      if (playerCount === 1) return 50;
+      return 0;
+    };
+
+    const evaluateCell = (r: number, c: number): number => {
+      let totalScore = 0;
+      const directions = [
+        [0, 1],   // horizontal
+        [1, 0],   // vertical
+        [1, 1],   // diagonal
+        [1, -1],  // anti-diagonal
+      ];
+
+      for (const [dr, dc] of directions) {
+        for (let i = 0; i < 5; i++) {
+          const startR = r - i * dr;
+          const startC = c - i * dc;
+
+          let valid = true;
+          const windowCells: number[] = [];
+          for (let j = 0; j < 5; j++) {
+            const currR = startR + j * dr;
+            const currC = startC + j * dc;
+            if (currR < 0 || currR >= 15 || currC < 0 || currC >= 15) {
+              valid = false;
+              break;
+            }
+            if (currR === r && currC === c) {
+              windowCells.push(-1); // Special evaluated spot
+            } else {
+              windowCells.push(board[currR][currC]);
+            }
+          }
+
+          if (valid) {
+            const aiLine = windowCells.map(val => val === -1 ? 2 : val);
+            const playerLine = windowCells.map(val => val === -1 ? 1 : val);
+
+            totalScore += getLineScore(aiLine, 2, 1) * 1.3; // Slight attack bias
+            totalScore += getLineScore(playerLine, 1, 2);
+          }
+        }
+      }
+
+      // Proximity to center bias
+      const distFromCenter = Math.abs(r - 7) + Math.abs(c - 7);
+      totalScore += (14 - distFromCenter) * 1.5;
+
+      // Noise factor to diversify AI paths
+      totalScore += Math.random() * 5;
+
+      return totalScore;
+    };
+
+    let bestScore = -1;
+    let bestMove = emptyCells[0];
+
+    for (const cell of emptyCells) {
+      const score = evaluateCell(cell.r, cell.c);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = cell;
+      }
+    }
+
+    handleAiPlacePiece(bestMove.r, bestMove.c);
+  };
+
+  const handleAiPlacePiece = (r: number, c: number) => {
+    const board = gameState.board;
+    const newBoard = board.map((row) => [...row]);
+    newBoard[r][c] = 2; // AI is guest (White)
+
+    setLastMove({ r, c });
+
+    const hasWon = checkWin(newBoard, r, c, 2);
+    const isDraw = !hasWon && checkDraw(newBoard);
+
+    const updatedGameState: GomokuState = {
+      board: newBoard,
+      current_turn: "host",
+      winner: hasWon ? "guest" : isDraw ? "draw" : null,
+    };
+
+    setRoom(prev => ({
+      ...prev,
+      game_state: updatedGameState,
+      status: hasWon || isDraw ? "finished" : prev.status
+    }));
+  };
+
+  // Trigger AI moves
+  useEffect(() => {
+    if (
+      room.room_code === "SINGLE" &&
+      room.status === "playing" &&
+      gameState?.current_turn === "guest" &&
+      !gameState.winner
+    ) {
+      const timer = setTimeout(() => {
+        makeAiMove();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [room.room_code, room.status, gameState?.current_turn, gameState?.winner]);
 
   /**
    * Win detection from coordinate (r, c)
@@ -142,6 +296,15 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
       winner: hasWon ? (isHost ? "host" : "guest") : isDraw ? "draw" : null,
     };
 
+    if (room.room_code === "SINGLE") {
+      setRoom(prev => ({
+        ...prev,
+        game_state: updatedGameState,
+        status: hasWon || isDraw ? "finished" : prev.status
+      }));
+      return;
+    }
+
     try {
       await roomManager.updateGameState(
         room.room_code,
@@ -158,6 +321,28 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
    * Set ready / unready status
    */
   const toggleReady = async () => {
+    if (room.room_code === "SINGLE") {
+      const currentReady = !!players.host?.ready;
+      const nextReady = !currentReady;
+      
+      const updatedPlayers = { ...room.players };
+      if (updatedPlayers.host) {
+        updatedPlayers.host.ready = nextReady;
+      }
+      
+      setRoom(prev => ({
+        ...prev,
+        players: updatedPlayers,
+        status: nextReady ? "playing" : "waiting",
+        game_state: {
+          board: Array(15).fill(null).map(() => Array(15).fill(0)),
+          current_turn: "host",
+          winner: null,
+        }
+      }));
+      return;
+    }
+
     const currentReady = isHost ? !!players.host?.ready : !!players.guest?.ready;
     try {
       await roomManager.updateReadyStatus(room.room_code, !currentReady);
@@ -170,6 +355,23 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
    * Re-match setup
    */
   const restartGame = async () => {
+    if (room.room_code === "SINGLE") {
+      setRoom(prev => ({
+        ...prev,
+        status: "waiting",
+        players: {
+          host: { ...(prev.players.host || {}), ready: false } as Player,
+          guest: { ...(prev.players.guest || {}), ready: true } as Player,
+        },
+        game_state: {
+          board: Array(15).fill(null).map(() => Array(15).fill(0)),
+          current_turn: "host",
+          winner: null,
+        }
+      }));
+      return;
+    }
+
     // Both need to set unready or we reset status to waiting
     try {
       // Host resets waiting to play again

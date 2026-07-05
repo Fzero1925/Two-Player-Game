@@ -61,6 +61,46 @@ export default function App() {
     }
   };
 
+  const handleStartSinglePlayer = (gameType: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const p = getOrCreatePlayer();
+      const singleRoom: Room = {
+        room_code: "SINGLE",
+        game_type: gameType,
+        status: "waiting",
+        players: {
+          host: {
+            id: p.id,
+            name: p.name,
+            online: true,
+            last_seen: Date.now(),
+            ready: false,
+          },
+          guest: {
+            id: "AI_BOT",
+            name: "智能 AI (电脑)",
+            online: true,
+            last_seen: Date.now(),
+            ready: true,
+          },
+        },
+        game_state: {
+          board: Array(15).fill(null).map(() => Array(15).fill(0)),
+          current_turn: "host",
+          winner: null,
+        }
+      };
+      setActiveRoom(singleRoom);
+      setPlayerRole("host");
+    } catch (err: any) {
+      setError("无法开启单人模式");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomCodeInput.trim()) {
@@ -310,6 +350,13 @@ export default function App() {
                         className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition duration-150 flex items-center justify-center gap-1.5"
                       >
                         {loading ? "正在创建..." : "创建专属棋局房间"}
+                      </button>
+                      <button
+                        onClick={() => handleStartSinglePlayer("gomoku")}
+                        disabled={loading}
+                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-bold rounded-xl transition duration-150 flex items-center justify-center gap-1.5"
+                      >
+                        单人练习 (人机对局)
                       </button>
                     </div>
                   </div>
