@@ -1,0 +1,6 @@
+{
+  "name": "Online Game Hub",
+  "description": "双人联机休闲游戏平台，支持五子棋（Gomoku）对战，内置房间管理、实时状态同步与掉线检测。支持本地服务器与 Supabase 实时数据库双模式。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
