@@ -507,10 +507,11 @@ export default function PictionaryGame({
         <div className="flex items-center gap-4">
           <button
             onClick={onLeave}
-            className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 rounded-xl transition duration-200 border border-slate-200 shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 rounded-xl transition duration-200 border border-slate-200 shadow-sm text-xs font-semibold"
             title="返回大厅"
           >
             <ArrowLeft size={18} />
+            <span className="hidden sm:inline">退出房间</span>
           </button>
           <div>
             <div className="flex items-center gap-2">

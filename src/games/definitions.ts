@@ -26,6 +26,8 @@
  */
 
 import { getRandomPictionaryWord } from "./pictionaryWords.js";
+import { getInitialMonopolyState } from "./monopoly/logic.js";
+import { getInitialFlightChessState } from "./flightchess/logic.js";
 
 export interface GameDefinition {
   id: string;
@@ -67,6 +69,14 @@ export const GAME_DEFINITIONS: Record<string, GameDefinition> = {
   pictionary: {
     id: "pictionary",
     getInitialState: createPictionaryState,
+  },
+  monopoly: {
+    id: "monopoly",
+    getInitialState: getInitialMonopolyState,
+  },
+  flightchess: {
+    id: "flightchess",
+    getInitialState: getInitialFlightChessState,
   },
 };
 

@@ -23,6 +23,8 @@
 import React from "react";
 import GomokuGame from "../components/GomokuGame.js";
 import PictionaryGame from "../components/PictionaryGame.js";
+import MonopolyGame from "./monopoly/MonopolyGame.js";
+import FlightChessGame from "./flightchess/FlightChessGame.js";
 
 export interface GameComponentProps {
   room: any;
@@ -59,6 +61,24 @@ export const GAME_UI_REGISTRY: GameUIDefinition[] = [
     description:
       "支持实时手绘板同步、画笔颜色与粗细调节、多人聊天室实时猜测。单人练习模式更提供智能 AI (Gemini) 实时图像辨认与精准猜测！",
     component: PictionaryGame,
+  },
+  {
+    id: "monopoly",
+    name: "简化版大富翁",
+    icon: "富",
+    badge: "联机对局",
+    description:
+      "24格环形跑道，掷骰子买地收租金，租金固定不涨、无需盖房升级，节奏更快。含机会格（卡牌效果开发中）。",
+    component: MonopolyGame,
+  },
+  {
+    id: "flightchess",
+    name: "飞行棋（双色版）",
+    icon: "飞",
+    badge: "联机对局",
+    description:
+      "每人4颗棋子，掷到1或6才能起飞，撞子送回营地，起飞格安全不会被撞。先让4颗棋子都到家的一方获胜。",
+    component: FlightChessGame,
   },
 ];
 
