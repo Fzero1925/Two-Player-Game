@@ -21,6 +21,16 @@ const ROLE_LABEL: Record<PlayerRole, string> = { host: "房主", guest: "访客"
 const ROLE_DOT: Record<PlayerRole, string> = { host: "bg-indigo-500", guest: "bg-amber-500" };
 const ROLE_BG: Record<PlayerRole, string> = { host: "bg-indigo-50 border-indigo-200", guest: "bg-amber-50 border-amber-200" };
 
+// Places the 24 shared-track cells evenly around a circle (starting at the top,
+// going clockwise), so the board looks like an actual race track instead of a grid.
+const TRACK_RADIUS_PERCENT = 42;
+function trackCirclePercent(cell: number): { left: number; top: number } {
+  const angle = (cell / TRACK_LENGTH) * 2 * Math.PI - Math.PI / 2;
+  const left = 50 + TRACK_RADIUS_PERCENT * Math.cos(angle);
+  const top = 50 + TRACK_RADIUS_PERCENT * Math.sin(angle);
+  return { left, top };
+}
+
 export default function FlightChessGame({ room: initialRoom, role, onLeave }: FlightChessGameProps) {
   const [room, setRoom] = useState<Room>(initialRoom);
   const [error, setError] = useState<string | null>(null);
@@ -71,8 +81,11 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
 
   const syncState = async (nextState: FlightChessState) => {
     const status = nextState.winner ? "finished" : "playing";
+    if (room.room_code === "SINGLE") {
+      setRoom((r) => ({ ...r, game_state: nextState, status }));
+      return;
+    }
     await roomManager.updateGameState(room.room_code, nextState, status);
-    if (room.room_code === "SINGLE") setRoom((r) => ({ ...r, game_state: nextState, status }));
   };
 
   const handleRoll = async () => {
@@ -177,40 +190,59 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
         </div>
       )}
 
-      {/* Shared track — v1: wrapped grid, not a literal cross-shaped board yet */}
-      <div className="mb-4">
+      {/* Shared track — laid out as an actual circle, with tokens that slide
+          smoothly (CSS transition) instead of jumping between cells. */}
+      <div className="mb-6">
         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">共享跑道</h3>
-        <div className="grid grid-cols-8 sm:grid-cols-12 gap-1.5">
+        <div className="relative w-full aspect-square max-w-md mx-auto select-none">
+          {/* The circular track ring itself, drawn as a border */}
+          <div
+            className="absolute rounded-full border-4 border-dashed border-slate-200"
+            style={{ left: "8%", top: "8%", width: "84%", height: "84%" }}
+          />
+
           {Array.from({ length: TRACK_LENGTH }, (_, cell) => {
             const isSafe = SAFE_CELLS.includes(cell);
             const isHostStart = cell === START_INDEX.host;
             const isGuestStart = cell === START_INDEX.guest;
-            const hostPiecesHere = state.pieces.host
-              .map((p, i) => ({ p, i }))
-              .filter(({ p }) => p.step >= 0 && p.step < TRACK_LENGTH && (START_INDEX.host + p.step) % TRACK_LENGTH === cell);
-            const guestPiecesHere = state.pieces.guest
-              .map((p, i) => ({ p, i }))
-              .filter(({ p }) => p.step >= 0 && p.step < TRACK_LENGTH && (START_INDEX.guest + p.step) % TRACK_LENGTH === cell);
+            const { left, top } = trackCirclePercent(cell);
             return (
               <div
                 key={cell}
-                className={`relative aspect-square rounded-lg border flex items-center justify-center text-[9px] ${
-                  isSafe ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-200"
+                className={`absolute w-6 h-6 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center ${
+                  isSafe ? "bg-emerald-50 border-emerald-300" : "bg-white border-slate-200"
                 }`}
+                style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%, -50%)" }}
                 title={isHostStart ? "房主起飞格（安全）" : isGuestStart ? "访客起飞格（安全）" : undefined}
               >
-                {isSafe && <Star size={10} className="absolute top-0.5 left-0.5 text-emerald-400" />}
-                <div className="flex flex-wrap gap-0.5 items-center justify-center">
-                  {hostPiecesHere.map(({ i }) => (
-                    <span key={`h${i}`} className="w-2.5 h-2.5 rounded-full bg-indigo-500 border border-white" title={`房主 ${i + 1}号`} />
-                  ))}
-                  {guestPiecesHere.map(({ i }) => (
-                    <span key={`g${i}`} className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-white" title={`访客 ${i + 1}号`} />
-                  ))}
-                </div>
+                {isSafe && <Star size={10} className="text-emerald-400" />}
               </div>
             );
           })}
+
+          {/* Animated tokens for every piece currently on the shared track */}
+          {(["host", "guest"] as PlayerRole[]).map((r) =>
+            state.pieces[r].map((piece, i) => {
+              if (piece.step < 0 || piece.step >= TRACK_LENGTH) return null;
+              const cell = (START_INDEX[r] + piece.step) % TRACK_LENGTH;
+              const { left, top } = trackCirclePercent(cell);
+              const spread = r === "host" ? -5 : 5;
+              return (
+                <div
+                  key={`${r}${i}`}
+                  className={`absolute w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2 border-white shadow-md transition-all duration-500 ease-out flex items-center justify-center text-[7px] font-bold text-white z-10 ${ROLE_DOT[r]}`}
+                  style={{
+                    left: `calc(${left}% + ${spread}px)`,
+                    top: `calc(${top}% + ${spread}px)`,
+                    transform: "translate(-50%, -50%)",
+                  }}
+                  title={`${ROLE_LABEL[r]} ${i + 1}号`}
+                >
+                  {i + 1}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 

@@ -200,3 +200,8 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key
 - [ ] 新游戏的 UI 只注册在 `registry.tsx` 一处
 - [ ] 没有在 `App.tsx` / `server.ts` / `src/pages/` 里为具体某个游戏写 if/else 特判
 - [ ] 新游戏文件夹里的 `logic.ts`/`board.ts` 没有 import React 或任何 `.tsx` 文件
+- [ ] 单人练习模式（`room.room_code === "SINGLE"`）的每一处状态更新，都在调用
+      `roomManager.updateGameState` **之前**先判断房间号，SINGLE的话直接更新本地
+      state、不发网络请求（这个坑已经在大富翁和飞行棋刚上线时踩过一次：单人模式的
+      房间根本没有写进Supabase的`rooms`表，调用更新接口会报错
+      `Cannot coerce the result to a single JSON object`，因为Supabase找不到这一行）

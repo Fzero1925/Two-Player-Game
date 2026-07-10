@@ -14,6 +14,22 @@ interface MonopolyGameProps {
 const ROLE_LABEL: Record<PlayerRole, string> = { host: "房主", guest: "访客" };
 const ROLE_COLOR: Record<PlayerRole, string> = { host: "bg-indigo-500", guest: "bg-amber-500" };
 
+// Maps a linear tile index (0..23) onto a 7x7 grid ring (perimeter = 4*7-4 = 24),
+// starting top-left, going clockwise — this is the classic "hollow square" board
+// topology real Monopoly boards use.
+const RING_SIZE = 7;
+function ringPosition(index: number): { row: number; col: number } {
+  const n = RING_SIZE;
+  if (index < n) return { row: 1, col: index + 1 };
+  if (index < n + (n - 1)) return { row: index - n + 2, col: n };
+  if (index < n + 2 * (n - 1)) return { row: n, col: n - (index - (n + (n - 1))) - 1 };
+  return { row: n - (index - (n + 2 * (n - 1))) - 1, col: 1 };
+}
+function ringPercent(index: number): { left: number; top: number } {
+  const { row, col } = ringPosition(index);
+  return { left: ((col - 0.5) / RING_SIZE) * 100, top: ((row - 0.5) / RING_SIZE) * 100 };
+}
+
 export default function MonopolyGame({ room: initialRoom, role, onLeave }: MonopolyGameProps) {
   const [room, setRoom] = useState<Room>(initialRoom);
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +85,11 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
     try {
       const nextState = rollDiceAndMove(state, myRole);
       const status = nextState.winner ? "finished" : "playing";
-      await roomManager.updateGameState(room.room_code, nextState, status);
-      if (room.room_code === "SINGLE") setRoom((r) => ({ ...r, game_state: nextState, status }));
+      if (room.room_code === "SINGLE") {
+        setRoom((r) => ({ ...r, game_state: nextState, status }));
+      } else {
+        await roomManager.updateGameState(room.room_code, nextState, status);
+      }
     } catch (err: any) {
       setError(err.message || "掷骰子失败");
     } finally {
@@ -84,8 +103,11 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
     try {
       const nextState = resolveBuyDecision(state, myRole, choice);
       const status = nextState.winner ? "finished" : "playing";
-      await roomManager.updateGameState(room.room_code, nextState, status);
-      if (room.room_code === "SINGLE") setRoom((r) => ({ ...r, game_state: nextState, status }));
+      if (room.room_code === "SINGLE") {
+        setRoom((r) => ({ ...r, game_state: nextState, status }));
+      } else {
+        await roomManager.updateGameState(room.room_code, nextState, status);
+      }
     } catch (err: any) {
       setError(err.message || "操作失败");
     }
@@ -167,33 +189,59 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
         {renderPlayerCard("guest", players.guest, guestOnline)}
       </div>
 
-      {/* Event log line */}
-      {state.lastEvent && (
-        <div className="mb-6 bg-slate-100 border border-slate-200 text-slate-600 text-sm px-4 py-3 rounded-xl">
-          {state.lastEvent}
-        </div>
-      )}
+      {/* Board — classic "hollow square" ring layout, 24 tiles around a 7x7 grid,
+          with an info panel in the empty center and animated player tokens. */}
+      <div className="relative w-full aspect-square max-w-2xl mx-auto mb-6 select-none">
+        <div
+          className="grid w-full h-full gap-1"
+          style={{ gridTemplateColumns: `repeat(${RING_SIZE}, 1fr)`, gridTemplateRows: `repeat(${RING_SIZE}, 1fr)` }}
+        >
+          {BOARD.map((tile) => {
+            const { row, col } = ringPosition(tile.index);
+            const owner = state.ownership[tile.index];
+            return (
+              <div
+                key={tile.index}
+                style={{ gridRow: row, gridColumn: col }}
+                className={`relative border rounded-lg p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden ${
+                  owner
+                    ? owner === "host"
+                      ? "bg-indigo-50 border-indigo-200"
+                      : "bg-amber-50 border-amber-200"
+                    : "bg-white border-slate-200"
+                }`}
+              >
+                <span className="font-semibold text-slate-700 leading-tight line-clamp-2">{tile.name}</span>
+                {tile.price && <span className="text-slate-400">${tile.price}</span>}
+              </div>
+            );
+          })}
 
-      {/* Board — v1: wrapped tile track, not a fancy circular layout yet */}
-      <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-6">
-        {BOARD.map((tile) => {
-          const owner = state.ownership[tile.index];
-          const hostHere = state.economy.host.position === tile.index;
-          const guestHere = state.economy.guest.position === tile.index;
+          {/* Center info panel — occupies the hollow middle of the ring */}
+          <div
+            style={{ gridRow: `2 / ${RING_SIZE}`, gridColumn: `2 / ${RING_SIZE}` }}
+            className="bg-slate-50 border border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 p-3 text-center"
+          >
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">简化版大富翁</span>
+            {state.lastEvent && <p className="text-[11px] sm:text-xs text-slate-600 leading-snug">{state.lastEvent}</p>}
+          </div>
+        </div>
+
+        {/* Animated player tokens, overlaid on top of the grid using percentage coordinates */}
+        {(["host", "guest"] as PlayerRole[]).map((r) => {
+          const { left, top } = ringPercent(state.economy[r].position);
+          const offset = r === "host" ? -6 : 6; // nudge apart so both tokens are visible on the same tile
           return (
             <div
-              key={tile.index}
-              className={`relative border rounded-xl p-2 text-[10px] flex flex-col justify-between min-h-[68px] ${
-                owner ? (owner === "host" ? "bg-indigo-50 border-indigo-200" : "bg-amber-50 border-amber-200") : "bg-white border-slate-200"
-              }`}
-            >
-              <span className="font-semibold text-slate-700 leading-tight">{tile.name}</span>
-              {tile.price && <span className="text-slate-400">${tile.price}</span>}
-              <div className="absolute bottom-1 right-1 flex gap-0.5">
-                {hostHere && <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 border border-white" />}
-                {guestHere && <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-white" />}
-              </div>
-            </div>
+              key={r}
+              className={`absolute w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 border-white shadow-md transition-all duration-500 ease-out ${ROLE_COLOR[r]}`}
+              style={{
+                left: `calc(${left}% + ${offset}px)`,
+                top: `calc(${top}% + ${offset}px)`,
+                transform: "translate(-50%, -50%)",
+              }}
+              title={ROLE_LABEL[r]}
+            />
           );
         })}
       </div>
