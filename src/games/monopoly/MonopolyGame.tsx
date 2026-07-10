@@ -1,9 +1,32 @@
 import React, { useState, useEffect } from "react";
 import { Room, Player } from "../../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../../lib/roomManager.js";
-import { BOARD } from "./board.js";
+import { BOARD, COLOR_GROUPS, TileType } from "./board.js";
 import { MonopolyState, PlayerRole, rollDiceAndMove, resolveBuyDecision } from "./logic.js";
-import { ArrowLeft, Wifi, WifiOff, Trophy, Coins } from "lucide-react";
+import {
+  ArrowLeft,
+  Wifi,
+  WifiOff,
+  Trophy,
+  Coins,
+  Flag,
+  Sparkles,
+  Landmark,
+  Lock,
+  ParkingCircle,
+  ShieldAlert,
+} from "lucide-react";
+
+// 每种格子类型对应的小图标，一眼区分格子类型（比纯文字更直观）。
+const TILE_ICON: Record<TileType, React.ComponentType<{ size?: number; className?: string }>> = {
+  go: Flag,
+  property: Coins,
+  chance: Sparkles,
+  tax: Landmark,
+  jail: Lock,
+  free_parking: ParkingCircle,
+  go_to_jail: ShieldAlert,
+};
 import Dice, { rollWithAnimation } from "../shared/Dice.js";
 import Token from "../shared/Token.js";
 
@@ -234,18 +257,31 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
           {BOARD.map((tile) => {
             const { row, col } = ringPosition(tile.index);
             const owner = state.ownership[tile.index];
+            const group = tile.colorGroup ? COLOR_GROUPS[tile.colorGroup] : null;
+            const Icon = TILE_ICON[tile.type];
+            const isCurrentTile =
+              !state.winner &&
+              (state.economy.host.position === tile.index || state.economy.guest.position === tile.index);
             return (
               <div
                 key={tile.index}
                 style={{ gridRow: row, gridColumn: col }}
-                className={`relative border rounded-lg p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden ${
+                className={`relative border rounded-lg p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden transition ${
                   owner
                     ? owner === "host"
-                      ? "bg-indigo-50 border-indigo-200"
-                      : "bg-amber-50 border-amber-200"
+                      ? "bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200"
+                      : "bg-amber-50 border-amber-300 ring-1 ring-amber-200"
+                    : group
+                    ? `${group.bg} ${group.border}`
                     : "bg-white border-slate-200"
-                }`}
+                } ${isCurrentTile ? "shadow-md scale-[1.03] z-10" : ""}`}
               >
+                {/* Color band strip — the classic Monopoly "property group" cue,
+                    only shown on unowned property tiles (owner tint takes over once bought). */}
+                {group && !owner && <div className={`absolute top-0 left-0 right-0 h-1 ${group.bar}`} />}
+                <div className="flex items-center gap-0.5 text-slate-400">
+                  <Icon size={9} className={group && !owner ? "text-slate-500" : undefined} />
+                </div>
                 <span className="font-semibold text-slate-700 leading-tight line-clamp-2">{tile.name}</span>
                 {tile.price && <span className="text-slate-400">${tile.price}</span>}
               </div>
@@ -281,6 +317,16 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
             </div>
           );
         })}
+      </div>
+
+      {/* Color-group legend — explains the colored bar strips on the board above */}
+      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mb-6 max-w-2xl mx-auto">
+        {Object.entries(COLOR_GROUPS).map(([key, group]) => (
+          <div key={key} className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span className={`w-2.5 h-2.5 rounded-sm ${group.bar}`} />
+            {group.label}
+          </div>
+        ))}
       </div>
 
       {/* Buy/skip decision modal */}

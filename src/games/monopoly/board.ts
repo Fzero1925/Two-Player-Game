@@ -21,6 +21,9 @@ export interface Tile {
   price?: number; // property only
   rent?: number; // property only, fixed rent
   taxAmount?: number; // tax only
+  /** property only — which color group this belongs to, for the classic
+   *  Monopoly-style color-banded board UI (see COLOR_GROUPS below). */
+  colorGroup?: string;
 }
 
 const PROPERTY_NAMES = [
@@ -28,6 +31,24 @@ const PROPERTY_NAMES = [
   "梧桐街", "紫金路", "云端里", "长虹大道", "翠湖街",
   "沉香巷", "临风路", "金穗大道", "碧波里",
 ];
+
+/**
+ * Classic Monopoly boards group properties into color bands (brown, light
+ * blue, pink, orange...) that go up in price as you go around the board.
+ * We have 14 properties here — grouped into pairs in board order, cycling
+ * through 7 colors. Tailwind class names are defined once here (not
+ * scattered across the UI file) so the palette is easy to retune later.
+ */
+export const COLOR_GROUPS: Record<string, { bar: string; bg: string; border: string; label: string }> = {
+  brown: { bar: "bg-amber-700", bg: "bg-amber-50", border: "border-amber-200", label: "棕色地产" },
+  cyan: { bar: "bg-cyan-500", bg: "bg-cyan-50", border: "border-cyan-200", label: "浅蓝地产" },
+  pink: { bar: "bg-pink-500", bg: "bg-pink-50", border: "border-pink-200", label: "粉色地产" },
+  orange: { bar: "bg-orange-500", bg: "bg-orange-50", border: "border-orange-200", label: "橙色地产" },
+  red: { bar: "bg-red-500", bg: "bg-red-50", border: "border-red-200", label: "红色地产" },
+  yellow: { bar: "bg-yellow-500", bg: "bg-yellow-50", border: "border-yellow-200", label: "黄色地产" },
+  green: { bar: "bg-emerald-600", bg: "bg-emerald-50", border: "border-emerald-200", label: "绿色地产" },
+};
+const COLOR_GROUP_ORDER = ["brown", "cyan", "pink", "orange", "red", "yellow", "green"];
 
 function buildBoard(): Tile[] {
   const layout: TileType[] = [
@@ -43,12 +64,14 @@ function buildBoard(): Tile[] {
     if (type === "property") {
       const price = 120 + propertyIdx * 40; // increasing price around the board
       const rent = Math.round(price * 0.15);
+      const colorGroup = COLOR_GROUP_ORDER[Math.floor(propertyIdx / 2) % COLOR_GROUP_ORDER.length];
       const tile: Tile = {
         index,
         type,
         name: PROPERTY_NAMES[propertyIdx] || `地产${propertyIdx + 1}`,
         price,
         rent,
+        colorGroup,
       };
       propertyIdx += 1;
       return tile;

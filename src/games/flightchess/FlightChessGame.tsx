@@ -188,7 +188,9 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
           </button>
           <div>
             <h2 className="text-lg font-bold text-slate-800">飞行棋（双色简化版）</h2>
-            <p className="text-xs text-slate-500">房间号：{room.room_code} · 掷到 1 或 6 才能起飞</p>
+            <p className="text-xs text-slate-500">
+              房间号：{room.room_code} · 掷到 1 或 6 才能起飞 · 掷到 6 可再掷一次（连续 3 次 6 作废）
+            </p>
           </div>
         </div>
 

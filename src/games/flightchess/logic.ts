@@ -25,6 +25,8 @@ export interface FlightChessState {
   lastEvent: string | null;
   pendingDecision: PendingDecision | null;
   winner: PlayerRole | null;
+  /** How many 6s currentTurn's player has rolled in a row so far this "extended turn". */
+  consecutiveSixes: number;
 }
 
 function otherRole(role: PlayerRole): PlayerRole {
@@ -42,9 +44,10 @@ export function getInitialFlightChessState(): FlightChessState {
     pieces: { host: freshPieces(), guest: freshPieces() },
     currentTurn: "host",
     lastDiceRoll: null,
-    lastEvent: "游戏开始！轮到 host 掷骰子（掷到 1 或 6 才能起飞）。",
+    lastEvent: "游戏开始！轮到 host 掷骰子（掷到 1 或 6 才能起飞，掷到 6 可以再掷一次）。",
     pendingDecision: null,
     winner: null,
+    consecutiveSixes: 0,
   };
 }
 
@@ -71,7 +74,9 @@ export function getLegalMoves(state: FlightChessState, role: PlayerRole, dice: n
 }
 
 function advanceTurn(state: FlightChessState): FlightChessState {
-  return { ...state, currentTurn: otherRole(state.currentTurn), pendingDecision: null };
+  // consecutiveSixes always resets when the turn actually changes hands —
+  // it only ever tracks the CURRENT player's streak within their own extended turn.
+  return { ...state, currentTurn: otherRole(state.currentTurn), pendingDecision: null, consecutiveSixes: 0 };
 }
 
 function checkWin(state: FlightChessState, role: PlayerRole): FlightChessState {
@@ -84,9 +89,16 @@ function checkWin(state: FlightChessState, role: PlayerRole): FlightChessState {
 
 /**
  * Move piece `pieceIndex` of `role` by `dice` steps, resolving capture/safe-cell/
- * finish logic, then advance the turn (no bonus turn on 6 — simplified on purpose).
+ * finish logic. If `grantBonusRoll` is true (dice was 6 and this wasn't the 3rd
+ * six in a row), the turn does NOT advance — same player rolls again.
  */
-function executeMove(state: FlightChessState, role: PlayerRole, pieceIndex: number, dice: number): FlightChessState {
+function executeMove(
+  state: FlightChessState,
+  role: PlayerRole,
+  pieceIndex: number,
+  dice: number,
+  grantBonusRoll: boolean
+): FlightChessState {
   const piece = state.pieces[role][pieceIndex];
   const fromBase = piece.step === -1;
   const newStep = fromBase ? 0 : piece.step + dice;
@@ -120,9 +132,12 @@ function executeMove(state: FlightChessState, role: PlayerRole, pieceIndex: numb
     }
   }
 
+  if (grantBonusRoll) event += " 掷出 6，可以再掷一次！";
   nextState = { ...nextState, lastEvent: event };
   nextState = checkWin(nextState, role);
-  return nextState.winner ? nextState : advanceTurn(nextState);
+  if (nextState.winner) return nextState;
+  // 掷 6 奖励一次额外投掷：不切换 currentTurn，只清掉 pendingDecision。
+  return grantBonusRoll ? { ...nextState, pendingDecision: null } : advanceTurn(nextState);
 }
 
 /**
@@ -130,29 +145,46 @@ function executeMove(state: FlightChessState, role: PlayerRole, pieceIndex: numb
  *  - auto-execute the move if exactly one piece can legally move,
  *  - set pendingDecision if multiple pieces can legally move,
  *  - pass the turn if no piece can legally move.
+ *
+ * "掷 6 再来一次" 规则：
+ *  - 掷出 6 且不是本回合连续第 3 次 6 → 这次的移动结算完之后，轮次不切换，
+ *    同一个人可以再掷一次（executeMove 内部通过 grantBonusRoll 控制）。
+ *  - 连续 3 次掷出 6 → 视为"手滑"，直接作废这次移动机会，轮到对方
+ *    （经典飞行棋/华容道规则里常见的防作弊设计，避免一方无限连庄）。
  */
 export function rollDiceForFlightChess(state: FlightChessState, role: PlayerRole): FlightChessState {
   if (state.winner || state.pendingDecision || state.currentTurn !== role) return state;
 
   const dice = Math.floor(Math.random() * 6) + 1;
-  const legal = getLegalMoves(state, role, dice);
-  const stateWithRoll: FlightChessState = { ...state, lastDiceRoll: dice };
+  const consecutiveSixes = dice === 6 ? state.consecutiveSixes + 1 : 0;
 
-  if (legal.length === 0) {
+  if (dice === 6 && consecutiveSixes >= 3) {
     return advanceTurn({
-      ...stateWithRoll,
-      lastEvent: `${roleLabel(role)} 掷出 ${dice}，没有可移动的棋子，轮到对方。`,
+      ...state,
+      lastDiceRoll: dice,
+      lastEvent: `${roleLabel(role)} 连续 3 次掷出 6，作废本次移动机会，轮到对方。`,
     });
   }
 
+  const grantBonusRoll = dice === 6;
+  const legal = getLegalMoves(state, role, dice);
+  const stateWithRoll: FlightChessState = { ...state, lastDiceRoll: dice, consecutiveSixes };
+
+  if (legal.length === 0) {
+    const noMoveEvent = `${roleLabel(role)} 掷出 ${dice}，没有可移动的棋子${grantBonusRoll ? "，但掷出 6 可以再掷一次！" : "，轮到对方。"}`;
+    return grantBonusRoll
+      ? { ...stateWithRoll, lastEvent: noMoveEvent }
+      : advanceTurn({ ...stateWithRoll, lastEvent: noMoveEvent });
+  }
+
   if (legal.length === 1) {
-    return executeMove(stateWithRoll, role, legal[0], dice);
+    return executeMove(stateWithRoll, role, legal[0], dice, grantBonusRoll);
   }
 
   return {
     ...stateWithRoll,
     pendingDecision: { type: "choose_piece", forPlayer: role, options: legal },
-    lastEvent: `${roleLabel(role)} 掷出 ${dice}，有多颗棋子可以走，请选择要移动的棋子。`,
+    lastEvent: `${roleLabel(role)} 掷出 ${dice}，有多颗棋子可以走，请选择要移动的棋子${grantBonusRoll ? "（本次是 6，选完还能再掷一次）" : ""}。`,
   };
 }
 
@@ -165,7 +197,8 @@ export function choosePieceForFlightChess(
   if (!state.pendingDecision || state.pendingDecision.forPlayer !== role) return state;
   if (!state.pendingDecision.options.includes(pieceIndex)) return state;
   if (state.lastDiceRoll === null) return state;
-  return executeMove(state, role, pieceIndex, state.lastDiceRoll);
+  const grantBonusRoll = state.lastDiceRoll === 6;
+  return executeMove(state, role, pieceIndex, state.lastDiceRoll, grantBonusRoll);
 }
 
 export { TRACK_LENGTH, HOME_STRETCH_LENGTH, TOTAL_PATH_LENGTH, PIECES_PER_PLAYER, START_INDEX, SAFE_CELLS };

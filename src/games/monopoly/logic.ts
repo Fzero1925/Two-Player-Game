@@ -1,4 +1,5 @@
 import { BOARD, BOARD_SIZE, JAIL_TILE_INDEX, STARTING_CASH, PASS_GO_BONUS, MAX_TURNS } from "./board.js";
+import { ChanceCard, drawChanceCard } from "./chanceCards.js";
 
 export type PlayerRole = "host" | "guest";
 
@@ -87,6 +88,34 @@ function checkBankruptcy(state: MonopolyState, role: PlayerRole): MonopolyState 
   return state;
 }
 
+/**
+ * Apply a drawn chance card's effect to `role`. Intentionally does NOT
+ * recursively resolve whatever tile the player gets teleported to (e.g. no
+ * rent charged if moveTo lands on an opponent's property) — see the
+ * "设计上刻意保持简单" note in chanceCards.ts for why.
+ */
+function applyChanceCard(state: MonopolyState, role: PlayerRole, card: ChanceCard): MonopolyState {
+  const player = state.economy[role];
+  let cash = player.cash;
+  let position = player.position;
+
+  if (card.effect.cashDelta) {
+    cash += card.effect.cashDelta;
+  }
+  if (card.effect.moveTo !== undefined) {
+    position = card.effect.moveTo;
+    if (card.effect.grantPassGoBonus) {
+      cash += PASS_GO_BONUS;
+    }
+  }
+
+  return {
+    ...state,
+    economy: { ...state.economy, [role]: { ...player, cash, position } },
+    lastEvent: `${role === "host" ? "房主" : "访客"}抽到机会卡：${card.text}`,
+  };
+}
+
 function advanceTurn(state: MonopolyState): MonopolyState {
   const nextTurnCount = state.turnCount + 1;
   if (nextTurnCount >= MAX_TURNS * 2) {
@@ -155,10 +184,10 @@ export function rollDiceAndMove(state: MonopolyState, role: PlayerRole): Monopol
   }
 
   if (tile.type === "chance") {
-    // Step 2 TODO: actual chance-card deck + effects. For now this is a
-    // harmless no-op placeholder tile so the board is already complete.
-    nextState = { ...nextState, lastEvent: `${event} 停在机会格（卡牌效果开发中，本次无事发生）。` };
-    return advanceTurn(nextState);
+    const card = drawChanceCard();
+    nextState = applyChanceCard(nextState, role, card);
+    nextState = checkBankruptcy(nextState, role);
+    return nextState.winner ? nextState : advanceTurn(nextState);
   }
 
   if (tile.type === "property") {

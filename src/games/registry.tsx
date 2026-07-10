@@ -22,7 +22,10 @@
 
 import React from "react";
 import GomokuGame from "../components/GomokuGame.js";
-import PictionaryGame from "../components/PictionaryGame.js";
+// 你画我猜暂时从大厅隐藏（AI猜画功能依赖 server.ts 的 Express 路由，在 Vercel
+// 无服务器环境下跑不起来；联机手绘同步本身没问题，但先不在大厅展示，等决定好
+// 要不要把AI识别迁移成 Serverless Function 再恢复）。组件和数据都还在，随时能加回来。
+// import PictionaryGame from "../components/PictionaryGame.js";
 import MonopolyGame from "./monopoly/MonopolyGame.js";
 import FlightChessGame from "./flightchess/FlightChessGame.js";
 
@@ -53,15 +56,16 @@ export const GAME_UI_REGISTRY: GameUIDefinition[] = [
       "经典 15×15 棋盘五子棋。双人实时下子、先达成五子连珠者获胜。支持玩家在线状态识别与防断网保护。",
     component: GomokuGame,
   },
-  {
-    id: "pictionary",
-    name: "你画我猜 (Pictionary)",
-    icon: "画",
-    badge: "联机对局",
-    description:
-      "支持实时手绘板同步、画笔颜色与粗细调节、多人聊天室实时猜测。单人练习模式更提供智能 AI (Gemini) 实时图像辨认与精准猜测！",
-    component: PictionaryGame,
-  },
+  // 你画我猜暂时隐藏，见上方 import 处的说明。恢复时把这一项和上面的 import 一起取消注释即可。
+  // {
+  //   id: "pictionary",
+  //   name: "你画我猜 (Pictionary)",
+  //   icon: "画",
+  //   badge: "联机对局",
+  //   description:
+  //     "支持实时手绘板同步、画笔颜色与粗细调节、多人聊天室实时猜测。单人练习模式更提供智能 AI (Gemini) 实时图像辨认与精准猜测！",
+  //   component: PictionaryGame,
+  // },
   {
     id: "monopoly",
     name: "简化版大富翁",
