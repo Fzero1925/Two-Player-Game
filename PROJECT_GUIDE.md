@@ -181,6 +181,24 @@ VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-public-key
 ```
 
+## 共享UI组件（骰子/棋子）
+
+`src/games/shared/` 放跨游戏复用的UI小组件，目前有：
+- `Dice.tsx` —— SVG骰子，`rolling=true`时随机换点数+轻微旋转，配合 `rollWithAnimation()`
+  （返回一个1-3秒随机延迟的Promise）实现"转动骰子"的视觉效果。任何需要骰子的新游戏
+  直接复用这个组件，不要自己重画一个。
+- `Token.tsx` —— SVG棋子（圆形+高光+可选数字标签），按 `role`（host/guest）区分颜色。
+  以后如果想换成AI生成的角色插画，只需要改这一个文件内部的`<svg>`为`<image>`标签
+  指向素材图片，所有引用`<Token/>`的地方会自动更新，不用挨个游戏改。
+
+## 单人练习模式的"AI对手"是一个容易漏掉的坑
+
+单人模式下，`guest` 是一个不存在真实用户的"机器人"角色。**如果只处理了"SINGLE模式跳过网络请求"，游戏在人类玩家回合结束、轮到"guest"之后会卡住不动**——因为没有任何代码会替"guest"去调用掷骰子/做决定的函数。
+
+正确做法是加一个 `useEffect`，监听 `state.currentTurn === "guest" && room.room_code === "SINGLE"`，延迟一小段时间后自动帮"guest"完成这一回合的动作（掷骰子、如果有待决定的选择就用一个简单的启发式规则决定）。`monopoly/MonopolyGame.tsx` 和 `flightchess/FlightChessGame.tsx` 里都有现成实现，写新游戏时照抄这个模式即可。
+
+**自检清单再加一条**：新游戏如果有单人模式，必须验证"轮到AI时游戏是否会自动继续"，不能只测"轮到自己时能不能操作"。
+
 ## 已知的遗留问题（还没修，按需处理）
 
 - **你画我猜的 AI 识别功能**（`/api/pictionary/ai-guess`）是 Express 路由，

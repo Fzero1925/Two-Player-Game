@@ -9,7 +9,9 @@ import {
   SAFE_CELLS,
 } from "./board.js";
 import { FlightChessState, PlayerRole, rollDiceForFlightChess, choosePieceForFlightChess } from "./logic.js";
-import { ArrowLeft, Dice5, Wifi, WifiOff, Trophy, Star } from "lucide-react";
+import { ArrowLeft, Wifi, WifiOff, Trophy, Star } from "lucide-react";
+import Dice, { rollWithAnimation } from "../shared/Dice.js";
+import Token from "../shared/Token.js";
 
 interface FlightChessGameProps {
   room: Room;
@@ -66,6 +68,40 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
 
   const players = room.players;
   const state = room.game_state as FlightChessState;
+
+  // AI turn (single-player mode only) — same fix as Monopoly: without this,
+  // the "guest" bot never acts and the game just sits there after your turn.
+  useEffect(() => {
+    if (room.room_code !== "SINGLE") return;
+    if (state.winner) return;
+    if (state.currentTurn !== "guest") return;
+
+    let cancelled = false;
+    const thinkDelay = setTimeout(async () => {
+      if (cancelled) return;
+
+      if (state.pendingDecision && state.pendingDecision.forPlayer === "guest") {
+        // Simple AI heuristic: just move the first legal piece.
+        const choice = state.pendingDecision.options[0];
+        const nextState = choosePieceForFlightChess(state, "guest", choice);
+        if (!cancelled) setRoom((r) => ({ ...r, game_state: nextState, status: nextState.winner ? "finished" : "playing" }));
+        return;
+      }
+
+      setRolling(true);
+      await rollWithAnimation();
+      if (cancelled) return;
+      const nextState = rollDiceForFlightChess(state, "guest");
+      setRoom((r) => ({ ...r, game_state: nextState, status: nextState.winner ? "finished" : "playing" }));
+      setRolling(false);
+    }, 700);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(thinkDelay);
+    };
+  }, [room.room_code, state]);
+
   const isHost = role === "host";
   const isGuest = role === "guest";
   const isSpectator = role === "spectator";
@@ -93,6 +129,7 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
     setRolling(true);
     setError(null);
     try {
+      await rollWithAnimation();
       await syncState(rollDiceForFlightChess(state, myRole));
     } catch (err: any) {
       setError(err.message || "掷骰子失败");
@@ -159,13 +196,10 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
           <button
             onClick={handleRoll}
             disabled={!canRoll}
-            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-sm transition"
+            className="flex items-center gap-3 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-sm transition"
           >
-            <Dice5 size={20} />
-            {myTurn ? (state.pendingDecision ? "请先选择棋子" : "掷骰子") : "等待对方操作..."}
-            {state.lastDiceRoll !== null && (
-              <span className="ml-1 bg-white/20 px-2 py-0.5 rounded-lg text-sm">上次: {state.lastDiceRoll}</span>
-            )}
+            <Dice value={state.lastDiceRoll} rolling={rolling} size={32} />
+            {myTurn ? (state.pendingDecision ? "请先选择棋子" : rolling ? "骰子转动中..." : "掷骰子") : "等待对方操作..."}
           </button>
         ) : (
           <div className="flex items-center gap-2 text-indigo-600 font-bold">
@@ -226,11 +260,11 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
               if (piece.step < 0 || piece.step >= TRACK_LENGTH) return null;
               const cell = (START_INDEX[r] + piece.step) % TRACK_LENGTH;
               const { left, top } = trackCirclePercent(cell);
-              const spread = r === "host" ? -5 : 5;
+              const spread = r === "host" ? -6 : 6;
               return (
                 <div
                   key={`${r}${i}`}
-                  className={`absolute w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2 border-white shadow-md transition-all duration-500 ease-out flex items-center justify-center text-[7px] font-bold text-white z-10 ${ROLE_DOT[r]}`}
+                  className="absolute transition-all duration-500 ease-out z-10 drop-shadow-md"
                   style={{
                     left: `calc(${left}% + ${spread}px)`,
                     top: `calc(${top}% + ${spread}px)`,
@@ -238,7 +272,7 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
                   }}
                   title={`${ROLE_LABEL[r]} ${i + 1}号`}
                 >
-                  {i + 1}
+                  <Token role={r} label={i + 1} size={18} />
                 </div>
               );
             })
@@ -258,9 +292,9 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
                 return (
                   <div
                     key={i}
-                    className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center text-[9px]"
+                    className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center"
                   >
-                    {pieceHere >= 0 && <span className={`w-3 h-3 rounded-full ${ROLE_DOT[r]}`} title={`${pieceHere + 1}号`} />}
+                    {pieceHere >= 0 && <Token role={r} label={pieceHere + 1} size={16} />}
                   </div>
                 );
               })}

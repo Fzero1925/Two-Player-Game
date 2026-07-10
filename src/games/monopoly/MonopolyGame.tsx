@@ -3,7 +3,9 @@ import { Room, Player } from "../../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../../lib/roomManager.js";
 import { BOARD } from "./board.js";
 import { MonopolyState, PlayerRole, rollDiceAndMove, resolveBuyDecision } from "./logic.js";
-import { ArrowLeft, Dice5, Wifi, WifiOff, Trophy, Coins } from "lucide-react";
+import { ArrowLeft, Wifi, WifiOff, Trophy, Coins } from "lucide-react";
+import Dice, { rollWithAnimation } from "../shared/Dice.js";
+import Token from "../shared/Token.js";
 
 interface MonopolyGameProps {
   room: Room;
@@ -63,8 +65,43 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
     return () => clearInterval(interval);
   }, [room.room_code]);
 
-  const players = room.players;
   const state = room.game_state as MonopolyState;
+  const players = room.players;
+
+  // AI turn (single-player mode only). The "guest" side is a bot with no
+  // real user clicking anything, so without this effect the game just sits
+  // there forever after the human's turn ends — this was the reported bug.
+  useEffect(() => {
+    if (room.room_code !== "SINGLE") return;
+    if (state.winner) return;
+    if (state.currentTurn !== "guest") return;
+
+    let cancelled = false;
+    const thinkDelay = setTimeout(async () => {
+      if (cancelled) return;
+
+      if (state.pendingDecision && state.pendingDecision.forPlayer === "guest") {
+        // Simple AI heuristic: buy if it can afford it, otherwise skip.
+        const tile = BOARD[state.pendingDecision.tileIndex];
+        const canAfford = tile.price !== undefined && state.economy.guest.cash >= tile.price;
+        const nextState = resolveBuyDecision(state, "guest", canAfford ? "buy" : "skip");
+        if (!cancelled) setRoom((r) => ({ ...r, game_state: nextState, status: nextState.winner ? "finished" : "playing" }));
+        return;
+      }
+
+      setRolling(true);
+      await rollWithAnimation();
+      if (cancelled) return;
+      const nextState = rollDiceAndMove(state, "guest");
+      setRoom((r) => ({ ...r, game_state: nextState, status: nextState.winner ? "finished" : "playing" }));
+      setRolling(false);
+    }, 700); // brief pause so the AI's turn doesn't feel instant/jarring
+
+    return () => {
+      cancelled = true;
+      clearTimeout(thinkDelay);
+    };
+  }, [room.room_code, state]);
   const isHost = role === "host";
   const isGuest = role === "guest";
   const isSpectator = role === "spectator";
@@ -83,6 +120,7 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
     setRolling(true);
     setError(null);
     try {
+      await rollWithAnimation();
       const nextState = rollDiceAndMove(state, myRole);
       const status = nextState.winner ? "finished" : "playing";
       if (room.room_code === "SINGLE") {
@@ -163,13 +201,10 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
           <button
             onClick={handleRoll}
             disabled={!canRoll}
-            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-sm transition"
+            className="flex items-center gap-3 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-sm transition"
           >
-            <Dice5 size={20} />
-            {myTurn ? (state.pendingDecision ? "请先完成上一步决定" : "掷骰子") : "等待对方操作..."}
-            {state.lastDiceRoll !== null && (
-              <span className="ml-1 bg-white/20 px-2 py-0.5 rounded-lg text-sm">上次: {state.lastDiceRoll}</span>
-            )}
+            <Dice value={state.lastDiceRoll} rolling={rolling} size={32} />
+            {myTurn ? (state.pendingDecision ? "请先完成上一步决定" : rolling ? "骰子转动中..." : "掷骰子") : "等待对方操作..."}
           </button>
         ) : (
           <div className="flex items-center gap-2 text-indigo-600 font-bold">
@@ -230,18 +265,20 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
         {/* Animated player tokens, overlaid on top of the grid using percentage coordinates */}
         {(["host", "guest"] as PlayerRole[]).map((r) => {
           const { left, top } = ringPercent(state.economy[r].position);
-          const offset = r === "host" ? -6 : 6; // nudge apart so both tokens are visible on the same tile
+          const offset = r === "host" ? -7 : 7; // nudge apart so both tokens are visible on the same tile
           return (
             <div
               key={r}
-              className={`absolute w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 border-white shadow-md transition-all duration-500 ease-out ${ROLE_COLOR[r]}`}
+              className="absolute transition-all duration-500 ease-out drop-shadow-md"
               style={{
                 left: `calc(${left}% + ${offset}px)`,
                 top: `calc(${top}% + ${offset}px)`,
                 transform: "translate(-50%, -50%)",
               }}
               title={ROLE_LABEL[r]}
-            />
+            >
+              <Token role={r} size={22} />
+            </div>
           );
         })}
       </div>
