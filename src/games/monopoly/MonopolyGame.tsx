@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Room, Player } from "../../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../../lib/roomManager.js";
-import { BOARD, COLOR_GROUPS, TileType } from "./board.js";
+import { BOARD, COLOR_GROUPS, TILE_TYPE_ACCENT, TileType } from "./board.js";
 import { MonopolyState, PlayerRole, rollDiceAndMove, resolveBuyDecision } from "./logic.js";
 import {
   ArrowLeft,
@@ -257,7 +257,9 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
           {BOARD.map((tile) => {
             const { row, col } = ringPosition(tile.index);
             const owner = state.ownership[tile.index];
-            const group = tile.colorGroup ? COLOR_GROUPS[tile.colorGroup] : null;
+            // 地产格用分组配色，非地产格（起点/机会/税务/监狱等）用类型配色——
+            // 两者合起来保证棋盘上每一格都有颜色，不会再出现大片空白格子。
+            const theme = tile.colorGroup ? COLOR_GROUPS[tile.colorGroup] : TILE_TYPE_ACCENT[tile.type];
             const Icon = TILE_ICON[tile.type];
             const isCurrentTile =
               !state.winner &&
@@ -266,21 +268,36 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
               <div
                 key={tile.index}
                 style={{ gridRow: row, gridColumn: col }}
-                className={`relative border rounded-lg p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden transition ${
+                title={
+                  tile.price
+                    ? `${tile.name} · 购买价 ${tile.price} 元 · 租金 ${tile.rent} 元`
+                    : tile.taxAmount
+                    ? `${tile.name} · 缴税 ${tile.taxAmount} 元`
+                    : tile.name
+                }
+                // 注意：这里不能给当前格加 z-index（哪怕只是让它"浮起来"的视觉效果），
+                // 因为 CSS 里 grid item 的 z-index 即使没设置 position 也会生效，会盖过
+                // 下面棋子那层 absolute 定位的 div——之前棋子"消失"就是栽在这个坑上。
+                className={`relative border rounded-lg p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden transition-transform ${
                   owner
                     ? owner === "host"
-                      ? "bg-indigo-50 border-indigo-300 ring-1 ring-indigo-200"
-                      : "bg-amber-50 border-amber-300 ring-1 ring-amber-200"
-                    : group
-                    ? `${group.bg} ${group.border}`
+                      ? "bg-indigo-50 border-indigo-300 ring-2 ring-indigo-300"
+                      : "bg-amber-50 border-amber-300 ring-2 ring-amber-300"
+                    : theme
+                    ? `${theme.bg} ${theme.border}`
                     : "bg-white border-slate-200"
-                } ${isCurrentTile ? "shadow-md scale-[1.03] z-10" : ""}`}
+                } ${isCurrentTile ? "scale-[1.06]" : ""}`}
               >
-                {/* Color band strip — the classic Monopoly "property group" cue,
-                    only shown on unowned property tiles (owner tint takes over once bought). */}
-                {group && !owner && <div className={`absolute top-0 left-0 right-0 h-1 ${group.bar}`} />}
-                <div className="flex items-center gap-0.5 text-slate-400">
-                  <Icon size={9} className={group && !owner ? "text-slate-500" : undefined} />
+                {/* Color band strip — the classic Monopoly "property group" cue.
+                    Shown on every unowned tile now (property groups + tile-type accents),
+                    owner tint takes over once a property tile is bought. */}
+                {theme && !owner && <div className={`absolute top-0 left-0 right-0 h-1.5 ${theme.bar}`} />}
+                <div
+                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center mt-0.5 ${
+                    theme && !owner ? `${theme.bar} text-white` : "bg-slate-200 text-slate-500"
+                  }`}
+                >
+                  <Icon size={9} />
                 </div>
                 <span className="font-semibold text-slate-700 leading-tight line-clamp-2">{tile.name}</span>
                 {tile.price && <span className="text-slate-400">${tile.price}</span>}
@@ -291,21 +308,37 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
           {/* Center info panel — occupies the hollow middle of the ring */}
           <div
             style={{ gridRow: `2 / ${RING_SIZE}`, gridColumn: `2 / ${RING_SIZE}` }}
-            className="bg-slate-50 border border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 p-3 text-center"
+            className="relative bg-gradient-to-br from-indigo-50 via-white to-amber-50 border border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 p-3 text-center overflow-hidden"
           >
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">简化版大富翁</span>
-            {state.lastEvent && <p className="text-[11px] sm:text-xs text-slate-600 leading-snug">{state.lastEvent}</p>}
+            <div className="flex items-center gap-2 text-[10px] sm:text-xs">
+              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${state.currentTurn === "host" && !state.winner ? "bg-indigo-100 text-indigo-700 font-bold" : "text-slate-400"}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                {players.host?.name || "房主"}
+              </span>
+              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${state.currentTurn === "guest" && !state.winner ? "bg-amber-100 text-amber-700 font-bold" : "text-slate-400"}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                {players.guest?.name || "访客"}
+              </span>
+            </div>
+            {state.lastEvent && (
+              <p className="text-[11px] sm:text-xs text-slate-600 leading-snug bg-white/70 rounded-lg px-2 py-1.5 shadow-sm">
+                {state.lastEvent}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Animated player tokens, overlaid on top of the grid using percentage coordinates */}
+        {/* Animated player tokens, overlaid on top of the grid using percentage coordinates.
+            z-20 here is deliberate and load-bearing: it guarantees tokens always render
+            above every board tile, even ones with their own transform/scale effects. */}
         {(["host", "guest"] as PlayerRole[]).map((r) => {
           const { left, top } = ringPercent(state.economy[r].position);
           const offset = r === "host" ? -7 : 7; // nudge apart so both tokens are visible on the same tile
           return (
             <div
               key={r}
-              className="absolute transition-all duration-500 ease-out drop-shadow-md"
+              className="absolute z-20 transition-all duration-500 ease-out drop-shadow-md"
               style={{
                 left: `calc(${left}% + ${offset}px)`,
                 top: `calc(${top}% + ${offset}px)`,
