@@ -5,10 +5,21 @@ import {
   TRACK_LENGTH,
   HOME_STRETCH_LENGTH,
   TOTAL_PATH_LENGTH,
-  START_INDEX,
+  COLOR_START_INDEX,
+  ROLE_COLORS,
+  COLOR_LABEL,
+  COLOR_SHADES,
   SAFE_CELLS,
+  PieceColor,
 } from "./board.js";
-import { FlightChessState, PlayerRole, rollDiceForFlightChess, choosePieceForFlightChess } from "./logic.js";
+import {
+  FlightChessState,
+  PlayerRole,
+  Piece,
+  rollDiceForFlightChess,
+  choosePieceForFlightChess,
+  pieceLabel,
+} from "./logic.js";
 import { ArrowLeft, Wifi, WifiOff, Trophy, Star } from "lucide-react";
 import Dice, { rollWithAnimation } from "../shared/Dice.js";
 import Token from "../shared/Token.js";
@@ -32,6 +43,22 @@ function trackCirclePercent(cell: number): { left: number; top: number } {
   const top = 50 + TRACK_RADIUS_PERCENT * Math.sin(angle);
   return { left, top };
 }
+
+// A piece's absolute cell on the shared track (or null if in base/home stretch),
+// keyed off the piece's own color start point (not the owning role).
+function pieceTrackCell(piece: Piece): number | null {
+  if (piece.step < 0 || piece.step >= TRACK_LENGTH) return null;
+  return (COLOR_START_INDEX[piece.color] + piece.step) % TRACK_LENGTH;
+}
+
+// Small fan-out offsets (in px) for up to 4 tokens sharing the same cell, so they
+// don't render exactly on top of each other and become unreadable.
+const CLUSTER_OFFSETS: Array<{ x: number; y: number }> = [
+  { x: -6, y: -6 },
+  { x: 6, y: -6 },
+  { x: -6, y: 6 },
+  { x: 6, y: 6 },
+];
 
 export default function FlightChessGame({ room: initialRoom, role, onLeave }: FlightChessGameProps) {
   const [room, setRoom] = useState<Room>(initialRoom);
@@ -148,6 +175,19 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
     }
   };
 
+  // Group every piece currently on the shared track by its absolute cell, so
+  // overlapping tokens (rare, but possible with 4 colors on one ring) fan out
+  // instead of stacking exactly on top of each other.
+  const cellOccupants: Record<number, Array<{ role: PlayerRole; piece: Piece; pieceIndex: number }>> = {};
+  (["host", "guest"] as PlayerRole[]).forEach((r) => {
+    state.pieces[r].forEach((piece, pieceIndex) => {
+      const cell = pieceTrackCell(piece);
+      if (cell === null) return;
+      if (!cellOccupants[cell]) cellOccupants[cell] = [];
+      cellOccupants[cell].push({ role: r, piece, pieceIndex });
+    });
+  });
+
   const renderPlayerCard = (r: PlayerRole, player: Player | null, online: boolean) => {
     const pieces = state.pieces[r];
     const inBase = pieces.filter((p) => p.step === -1).length;
@@ -164,11 +204,58 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
             <span className={`w-2.5 h-2.5 rounded-full ${ROLE_DOT[r]}`} />
             <span className="text-sm font-bold text-slate-800">{player?.name || ROLE_LABEL[r]}</span>
           </div>
-          {online ? <Wifi size={14} className="text-emerald-500" /> : <WifiOff size={14} className="text-red-400" />}
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {ROLE_COLORS[r].map((c) => (
+                <span
+                  key={c}
+                  className="w-2.5 h-2.5 rounded-full border border-white shadow-sm"
+                  style={{ backgroundColor: COLOR_SHADES[c].mid }}
+                  title={`${COLOR_LABEL[c]}方`}
+                />
+              ))}
+            </div>
+            {online ? <Wifi size={14} className="text-emerald-500" /> : <WifiOff size={14} className="text-red-400" />}
+          </div>
         </div>
         <div className="text-xs text-slate-500">
-          营地 {inBase} · 跑道上 {onPath} · 到家 {home} / 4
+          营地 {inBase} · 跑道上 {onPath} · 到家 {home} / {pieces.length}
         </div>
+      </div>
+    );
+  };
+
+  // A single color's home-stretch strip + camp summary — used twice per player card.
+  const renderColorLane = (r: PlayerRole, color: PieceColor) => {
+    const pieces = state.pieces[r];
+    const inBase = pieces
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => p.color === color && p.step === -1);
+    return (
+      <div key={color} className="flex-1 min-w-[140px]">
+        <p className="text-xs font-bold mb-1.5 flex items-center gap-1.5" style={{ color: COLOR_SHADES[color].dark }}>
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COLOR_SHADES[color].mid }} />
+          {COLOR_LABEL[color]}色
+        </p>
+        <div className="flex gap-1 mb-2">
+          {Array.from({ length: HOME_STRETCH_LENGTH }, (_, i) => {
+            const stepValue = TRACK_LENGTH + i;
+            const found = pieces
+              .map((p, idx) => ({ p, idx }))
+              .find(({ p }) => p.color === color && p.step === stepValue);
+            return (
+              <div
+                key={i}
+                className="w-6 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center"
+              >
+                {found && <Token role={r} shades={COLOR_SHADES[color]} label={(found.idx % 4) + 1} size={14} />}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-slate-500">
+          营地：{inBase.length > 0 ? inBase.map(({ i }) => (i % 4) + 1).join("、") : "空"}
+        </p>
       </div>
     );
   };
@@ -187,9 +274,9 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
             <span className="hidden sm:inline">退出房间</span>
           </button>
           <div>
-            <h2 className="text-lg font-bold text-slate-800">飞行棋（双色简化版）</h2>
+            <h2 className="text-lg font-bold text-slate-800">飞行棋（四色版）</h2>
             <p className="text-xs text-slate-500">
-              房间号：{room.room_code} · 掷到 1 或 6 才能起飞 · 掷到 6 可再掷一次（连续 3 次 6 作废）
+              房间号：{room.room_code} · 房主控制红/绿，访客控制蓝/黄 · 掷 1或6 起飞 · 掷 6 再来一次（连续3次作废）
             </p>
           </div>
         </div>
@@ -227,9 +314,10 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
       )}
 
       {/* Shared track — laid out as an actual circle, with tokens that slide
-          smoothly (CSS transition) instead of jumping between cells. */}
+          smoothly (CSS transition) instead of jumping between cells. Four
+          color-coded start points instead of two, spread evenly around it. */}
       <div className="mb-6">
-        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">共享跑道</h3>
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">共享跑道（四色）</h3>
         <div className="relative w-full aspect-square max-w-md mx-auto select-none">
           {/* The circular track ring itself, drawn as a border */}
           <div
@@ -238,95 +326,95 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
           />
 
           {Array.from({ length: TRACK_LENGTH }, (_, cell) => {
-            const isSafe = SAFE_CELLS.includes(cell);
-            const isHostStart = cell === START_INDEX.host;
-            const isGuestStart = cell === START_INDEX.guest;
+            const startColor = (Object.keys(COLOR_START_INDEX) as PieceColor[]).find(
+              (c) => COLOR_START_INDEX[c] === cell
+            );
             const { left, top } = trackCirclePercent(cell);
             return (
               <div
                 key={cell}
-                className={`absolute w-6 h-6 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center ${
-                  isSafe ? "bg-emerald-50 border-emerald-300" : "bg-white border-slate-200"
-                }`}
-                style={{ left: `${left}%`, top: `${top}%`, transform: "translate(-50%, -50%)" }}
-                title={isHostStart ? "房主起飞格（安全）" : isGuestStart ? "访客起飞格（安全）" : undefined}
+                className="absolute w-6 h-6 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center bg-white border-slate-200"
+                style={{
+                  left: `${left}%`,
+                  top: `${top}%`,
+                  transform: "translate(-50%, -50%)",
+                  ...(startColor
+                    ? { backgroundColor: COLOR_SHADES[startColor].light, borderColor: COLOR_SHADES[startColor].mid }
+                    : {}),
+                }}
+                title={startColor ? `${COLOR_LABEL[startColor]}色起飞格（安全）` : undefined}
               >
-                {isSafe && <Star size={10} className="text-emerald-400" />}
+                {startColor && <Star size={10} style={{ color: COLOR_SHADES[startColor].dark }} />}
               </div>
             );
           })}
 
-          {/* Animated tokens for every piece currently on the shared track */}
-          {(["host", "guest"] as PlayerRole[]).map((r) =>
-            state.pieces[r].map((piece, i) => {
-              if (piece.step < 0 || piece.step >= TRACK_LENGTH) return null;
-              const cell = (START_INDEX[r] + piece.step) % TRACK_LENGTH;
-              const { left, top } = trackCirclePercent(cell);
-              const spread = r === "host" ? -6 : 6;
+          {/* Animated tokens for every piece currently on the shared track, fanned
+              out within their cell if more than one piece happens to share it. */}
+          {Object.entries(cellOccupants).flatMap(([cellStr, occupants]) => {
+            const cell = Number(cellStr);
+            const { left, top } = trackCirclePercent(cell);
+            return occupants.map((occ, i) => {
+              const offset = CLUSTER_OFFSETS[i % CLUSTER_OFFSETS.length];
               return (
                 <div
-                  key={`${r}${i}`}
+                  key={`${occ.role}-${occ.pieceIndex}`}
                   className="absolute transition-all duration-500 ease-out z-10 drop-shadow-md"
                   style={{
-                    left: `calc(${left}% + ${spread}px)`,
-                    top: `calc(${top}% + ${spread}px)`,
+                    left: `calc(${left}% + ${offset.x}px)`,
+                    top: `calc(${top}% + ${offset.y}px)`,
                     transform: "translate(-50%, -50%)",
                   }}
-                  title={`${ROLE_LABEL[r]} ${i + 1}号`}
+                  title={`${ROLE_LABEL[occ.role]} ${pieceLabel(occ.piece, occ.pieceIndex)}`}
                 >
-                  <Token role={r} label={i + 1} size={18} />
+                  <Token
+                    role={occ.role}
+                    shades={COLOR_SHADES[occ.piece.color]}
+                    label={(occ.pieceIndex % 4) + 1}
+                    size={18}
+                  />
                 </div>
               );
-            })
-          )}
+            });
+          })}
         </div>
       </div>
 
-      {/* Per-player home stretch + base */}
+      {/* Per-player home stretches + camps — each player card now splits into
+          their two colors side by side. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         {(["host", "guest"] as PlayerRole[]).map((r) => (
           <div key={r} className={`border rounded-2xl p-3 ${ROLE_BG[r]}`}>
             <p className="text-xs font-bold text-slate-600 mb-2">{ROLE_LABEL[r]} 的到家小路</p>
-            <div className="flex gap-1.5 mb-3">
-              {Array.from({ length: HOME_STRETCH_LENGTH }, (_, i) => {
-                const stepValue = TRACK_LENGTH + i;
-                const pieceHere = state.pieces[r].findIndex((p) => p.step === stepValue);
-                return (
-                  <div
-                    key={i}
-                    className="w-7 h-7 rounded-md bg-white border border-slate-200 flex items-center justify-center"
-                  >
-                    {pieceHere >= 0 && <Token role={r} label={pieceHere + 1} size={16} />}
-                  </div>
-                );
-              })}
+            <div className="flex gap-3 flex-wrap">
+              {ROLE_COLORS[r].map((color) => renderColorLane(r, color))}
             </div>
-            <p className="text-xs text-slate-500">
-              营地：
-              {state.pieces[r]
-                .map((p, i) => (p.step === -1 ? i + 1 : null))
-                .filter((v) => v !== null)
-                .join("、") || "空"}
-            </p>
           </div>
         ))}
       </div>
 
-      {/* Choose-piece decision */}
+      {/* Choose-piece decision — buttons are tinted by each piece's actual color
+          so it's immediately clear which one you're picking. */}
       {myPendingDecision && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
             <h3 className="text-base font-bold text-slate-800 mb-4">请选择要移动的棋子（本次骰子：{state.lastDiceRoll}）</h3>
             <div className="grid grid-cols-2 gap-3">
-              {myPendingDecision.options.map((idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleChoosePiece(idx)}
-                  className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition"
-                >
-                  {idx + 1} 号棋子
-                </button>
-              ))}
+              {myPendingDecision.options.map((idx) => {
+                const piece = myRole ? state.pieces[myRole][idx] : null;
+                if (!piece) return null;
+                const shade = COLOR_SHADES[piece.color];
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleChoosePiece(idx)}
+                    className="py-3 text-white text-sm font-bold rounded-xl transition hover:brightness-110"
+                    style={{ backgroundColor: shade.mid }}
+                  >
+                    {pieceLabel(piece, idx)}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

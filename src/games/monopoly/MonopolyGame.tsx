@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Room, Player } from "../../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../../lib/roomManager.js";
 import { BOARD, COLOR_GROUPS, TILE_TYPE_ACCENT, TileType } from "./board.js";
-import { MonopolyState, PlayerRole, rollDiceAndMove, resolveBuyDecision } from "./logic.js";
+import { MonopolyState, PlayerRole, rollDiceAndMove, resolveBuyDecision, sellPropertyToCoverDebt } from "./logic.js";
 import {
   ArrowLeft,
   Wifi,
@@ -104,10 +104,22 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
       if (cancelled) return;
 
       if (state.pendingDecision && state.pendingDecision.forPlayer === "guest") {
-        // Simple AI heuristic: buy if it can afford it, otherwise skip.
-        const tile = BOARD[state.pendingDecision.tileIndex];
-        const canAfford = tile.price !== undefined && state.economy.guest.cash >= tile.price;
-        const nextState = resolveBuyDecision(state, "guest", canAfford ? "buy" : "skip");
+        if (state.pendingDecision.type === "buy_or_skip") {
+          // Simple AI heuristic: buy if it can afford it, otherwise skip.
+          const tile = BOARD[state.pendingDecision.tileIndex];
+          const canAfford = tile.price !== undefined && state.economy.guest.cash >= tile.price;
+          const nextState = resolveBuyDecision(state, "guest", canAfford ? "buy" : "skip");
+          if (!cancelled) setRoom((r) => ({ ...r, game_state: nextState, status: nextState.winner ? "finished" : "playing" }));
+          return;
+        }
+        // must_sell：卖掉持有地产里最便宜的一块，够用就行，尽量少亏
+        const owned = state.economy.guest.ownedTiles
+          .map((idx) => BOARD[idx])
+          .sort((a, b) => (a.price || 0) - (b.price || 0));
+        const cheapest = owned[0];
+        const nextState = cheapest
+          ? sellPropertyToCoverDebt(state, "guest", cheapest.index)
+          : state;
         if (!cancelled) setRoom((r) => ({ ...r, game_state: nextState, status: nextState.winner ? "finished" : "playing" }));
         return;
       }
@@ -174,6 +186,22 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
     }
   };
 
+  const handleSellDecision = async (tileIndex: number) => {
+    if (!myRole) return;
+    setError(null);
+    try {
+      const nextState = sellPropertyToCoverDebt(state, myRole, tileIndex);
+      const status = nextState.winner ? "finished" : "playing";
+      if (room.room_code === "SINGLE") {
+        setRoom((r) => ({ ...r, game_state: nextState, status }));
+      } else {
+        await roomManager.updateGameState(room.room_code, nextState, status);
+      }
+    } catch (err: any) {
+      setError(err.message || "操作失败");
+    }
+  };
+
   const renderPlayerCard = (r: PlayerRole, player: Player | null, online: boolean) => {
     const eco = state.economy[r];
     return (
@@ -216,7 +244,9 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
           </button>
           <div>
             <h2 className="text-lg font-bold text-slate-800">简化版大富翁</h2>
-            <p className="text-xs text-slate-500">房间号：{room.room_code}</p>
+            <p className="text-xs text-slate-500">
+              房间号：{room.room_code} · 双数可再掷一次（连续3次送进监狱）· 集齐同色地产租金翻倍
+            </p>
           </div>
         </div>
 
@@ -278,14 +308,14 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
                 // 注意：这里不能给当前格加 z-index（哪怕只是让它"浮起来"的视觉效果），
                 // 因为 CSS 里 grid item 的 z-index 即使没设置 position 也会生效，会盖过
                 // 下面棋子那层 absolute 定位的 div——之前棋子"消失"就是栽在这个坑上。
-                className={`relative border rounded-lg p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden transition-transform ${
+                className={`relative border rounded-lg border-b-4 p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden transition-transform shadow-[0_2px_3px_rgba(15,23,42,0.12),inset_0_1px_0_0_rgba(255,255,255,0.65)] ${
                   owner
                     ? owner === "host"
-                      ? "bg-indigo-50 border-indigo-300 ring-2 ring-indigo-300"
-                      : "bg-amber-50 border-amber-300 ring-2 ring-amber-300"
+                      ? "bg-indigo-50 border-indigo-300 border-b-indigo-500 ring-2 ring-indigo-300"
+                      : "bg-amber-50 border-amber-300 border-b-amber-500 ring-2 ring-amber-300"
                     : theme
-                    ? `${theme.bg} ${theme.border}`
-                    : "bg-white border-slate-200"
+                    ? `${theme.bg} ${theme.border} ${theme.edge}`
+                    : "bg-white border-slate-200 border-b-slate-300"
                 } ${isCurrentTile ? "scale-[1.06]" : ""}`}
               >
                 {/* Color band strip — the classic Monopoly "property group" cue.
@@ -363,7 +393,7 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
       </div>
 
       {/* Buy/skip decision modal */}
-      {myPendingDecision && (
+      {myPendingDecision && myPendingDecision.type === "buy_or_skip" && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
             <h3 className="text-base font-bold text-slate-800 mb-2">
@@ -385,6 +415,36 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
               >
                 购买
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Must-sell decision modal — cash went negative, forced to sell owned
+          properties (at 50% of purchase price) until solvent again. */}
+      {myPendingDecision && myPendingDecision.type === "must_sell" && myRole && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-base font-bold text-red-600 mb-1">现金不足，必须卖地补齐差额</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              当前现金 {state.economy[myRole].cash} 元。选一块地产卖给银行（按购买价的一半回收），卖到现金不再是负数为止。
+            </p>
+            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+              {state.economy[myRole].ownedTiles.map((idx) => {
+                const tile = BOARD[idx];
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleSellDecision(idx)}
+                    className="flex items-center justify-between px-3 py-2.5 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-300 rounded-xl transition text-left"
+                  >
+                    <span className="text-sm font-semibold text-slate-700">{tile.name}</span>
+                    <span className="text-xs text-rose-500 font-bold">
+                      卖 {Math.round((tile.price || 0) * 0.5)} 元
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

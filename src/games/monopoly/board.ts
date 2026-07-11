@@ -39,14 +39,14 @@ const PROPERTY_NAMES = [
  * through 7 colors. Tailwind class names are defined once here (not
  * scattered across the UI file) so the palette is easy to retune later.
  */
-export const COLOR_GROUPS: Record<string, { bar: string; bg: string; border: string; label: string }> = {
-  brown: { bar: "bg-amber-700", bg: "bg-amber-100", border: "border-amber-300", label: "棕色地产" },
-  cyan: { bar: "bg-cyan-500", bg: "bg-cyan-100", border: "border-cyan-300", label: "浅蓝地产" },
-  pink: { bar: "bg-pink-500", bg: "bg-pink-100", border: "border-pink-300", label: "粉色地产" },
-  orange: { bar: "bg-orange-500", bg: "bg-orange-100", border: "border-orange-300", label: "橙色地产" },
-  red: { bar: "bg-red-500", bg: "bg-red-100", border: "border-red-300", label: "红色地产" },
-  yellow: { bar: "bg-yellow-500", bg: "bg-yellow-100", border: "border-yellow-300", label: "黄色地产" },
-  green: { bar: "bg-emerald-600", bg: "bg-emerald-100", border: "border-emerald-300", label: "绿色地产" },
+export const COLOR_GROUPS: Record<string, { bar: string; bg: string; border: string; edge: string; label: string }> = {
+  brown: { bar: "bg-amber-700", bg: "bg-amber-100", border: "border-amber-300", edge: "border-b-amber-800", label: "棕色地产" },
+  cyan: { bar: "bg-cyan-500", bg: "bg-cyan-100", border: "border-cyan-300", edge: "border-b-cyan-700", label: "浅蓝地产" },
+  pink: { bar: "bg-pink-500", bg: "bg-pink-100", border: "border-pink-300", edge: "border-b-pink-700", label: "粉色地产" },
+  orange: { bar: "bg-orange-500", bg: "bg-orange-100", border: "border-orange-300", edge: "border-b-orange-700", label: "橙色地产" },
+  red: { bar: "bg-red-500", bg: "bg-red-100", border: "border-red-300", edge: "border-b-red-700", label: "红色地产" },
+  yellow: { bar: "bg-yellow-500", bg: "bg-yellow-100", border: "border-yellow-300", edge: "border-b-yellow-600", label: "黄色地产" },
+  green: { bar: "bg-emerald-600", bg: "bg-emerald-100", border: "border-emerald-300", edge: "border-b-emerald-800", label: "绿色地产" },
 };
 const COLOR_GROUP_ORDER = ["brown", "cyan", "pink", "orange", "red", "yellow", "green"];
 
@@ -54,14 +54,15 @@ const COLOR_GROUP_ORDER = ["brown", "cyan", "pink", "orange", "red", "yellow", "
  * 非地产格（起点/机会/税务/监狱/免费停车/进监狱）也各自给一个主题色，
  * 之前这些格子是纯白/纯灰，整个棋盘看起来很单调——现在每种类型都有
  * 辨识度很强的底色，一眼就能分清格子类型，不用凑近看文字。
+ * `edge` 是更深一号的同色系，用在格子底边，做出"立体方块"的厚度感。
  */
-export const TILE_TYPE_ACCENT: Partial<Record<TileType, { bar: string; bg: string; border: string }>> = {
-  go: { bar: "bg-teal-500", bg: "bg-teal-100", border: "border-teal-300" },
-  chance: { bar: "bg-violet-500", bg: "bg-violet-100", border: "border-violet-300" },
-  tax: { bar: "bg-rose-500", bg: "bg-rose-100", border: "border-rose-300" },
-  jail: { bar: "bg-slate-400", bg: "bg-slate-100", border: "border-slate-300" },
-  free_parking: { bar: "bg-sky-500", bg: "bg-sky-100", border: "border-sky-300" },
-  go_to_jail: { bar: "bg-orange-600", bg: "bg-orange-200", border: "border-orange-400" },
+export const TILE_TYPE_ACCENT: Partial<Record<TileType, { bar: string; bg: string; border: string; edge: string }>> = {
+  go: { bar: "bg-teal-500", bg: "bg-teal-100", border: "border-teal-300", edge: "border-b-teal-700" },
+  chance: { bar: "bg-violet-500", bg: "bg-violet-100", border: "border-violet-300", edge: "border-b-violet-700" },
+  tax: { bar: "bg-rose-500", bg: "bg-rose-100", border: "border-rose-300", edge: "border-b-rose-700" },
+  jail: { bar: "bg-slate-400", bg: "bg-slate-100", border: "border-slate-300", edge: "border-b-slate-600" },
+  free_parking: { bar: "bg-sky-500", bg: "bg-sky-100", border: "border-sky-300", edge: "border-b-sky-700" },
+  go_to_jail: { bar: "bg-orange-600", bg: "bg-orange-200", border: "border-orange-400", edge: "border-b-orange-800" },
 };
 
 function buildBoard(): Tile[] {

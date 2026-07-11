@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/* 棋子轻微悬浮动效——配合棋盘的立体块效果，让棋子看起来像是"站"在格子上，
+   而不是贴在平面上的图标。所有游戏的 <Token/> 都可以选用这个 class。 */
+@keyframes token-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+.token-float {
+  animation: token-float 1.8s ease-in-out infinite;
+}
