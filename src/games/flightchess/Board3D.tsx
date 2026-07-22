@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { Suspense, useEffect, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Text, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
@@ -44,6 +44,11 @@ import Die3D from "../shared/Die3D.js";
  *  - 中文字体：跟大富翁共用同一份 /fonts/board-cjk.woff2 子集字体（见
  *    monopoly/Board3D.tsx 顶部注释里字体子集化的说明和重新生成方法），
  *    这个文件用到的新增字是"飞行棋红蓝绿黄"，已经包含在子集里。
+ *  - 【健壮性】原因同样写在 monopoly/Board3D.tsx 顶部注释里：drei 的 <Text>
+ *    字体加载失败/卡住时会一直向上抛，抛到 FlightChessGame.tsx 里包
+ *    `<Board3D>` 的 Suspense 就再也回不来，整个棋盘（不只是文字）会卡在
+ *    "3D 棋盘加载中..."出不来。所以下面每一处 <Text> 都单独包了一层
+ *    `<Suspense fallback={null}>` 兜底。
  */
 
 const RING_RADIUS = 4.3;
@@ -315,38 +320,41 @@ export default function Board3D({ state, rolling }: { state: FlightChessState; r
           <circleGeometry args={[0.85, 40]} />
           <meshStandardMaterial color="#8b5cf6" roughness={0.6} />
         </mesh>
-        <Text
-          position={[0, 0.02, 0]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          fontSize={0.34}
-          color="white"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.008}
-          outlineColor="#6d28d9"
-          font="/fonts/board-cjk.woff2"
-        >
-          飞行棋
-        </Text>
+        <Suspense fallback={null}>
+          <Text
+            position={[0, 0.02, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fontSize={0.34}
+            color="white"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.008}
+            outlineColor="#6d28d9"
+            font="/fonts/board-cjk.woff2"
+          >
+            飞行棋
+          </Text>
+        </Suspense>
 
         {COLORS.map((color) => {
           const a = ringAngle(COLOR_START_INDEX[color]);
           const labelRadius = RING_RADIUS + 0.75;
           return (
-            <Text
-              key={`label-${color}`}
-              position={[Math.cos(a) * labelRadius, 0.05, Math.sin(a) * labelRadius]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.24}
-              color={COLOR_SHADES[color].dark}
-              anchorX="center"
-              anchorY="middle"
-              outlineWidth={0.005}
-              outlineColor="#ffffff"
-              font="/fonts/board-cjk.woff2"
-            >
-              {COLOR_LABEL[color]}
-            </Text>
+            <Suspense fallback={null} key={`label-${color}`}>
+              <Text
+                position={[Math.cos(a) * labelRadius, 0.05, Math.sin(a) * labelRadius]}
+                rotation={[-Math.PI / 2, 0, 0]}
+                fontSize={0.24}
+                color={COLOR_SHADES[color].dark}
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.005}
+                outlineColor="#ffffff"
+                font="/fonts/board-cjk.woff2"
+              >
+                {COLOR_LABEL[color]}
+              </Text>
+            </Suspense>
           );
         })}
 

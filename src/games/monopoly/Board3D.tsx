@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { Suspense, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, RoundedBox, Text, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
@@ -31,6 +31,16 @@ import Die3D from "../shared/Die3D.js";
  * 列表> --flavor=woff2 --output-file=public/fonts/board-cjk.woff2`。源字体
  * 从 `@fontsource/noto-sans-sc` 包里的
  * `files/noto-sans-sc-chinese-simplified-100-normal.woff2` 拿。
+ *
+ * 【健壮性】drei 的 <Text> 内部用 suspend-react 包了一层字体加载的 Promise，
+ * 而这层 Promise 只有 resolve 路径、没有 reject 路径——字体文件万一加载失败
+ * 或者卡住（网络问题、部署时漏拷贝了字体文件等），这个 Promise 永远不会
+ * settle，会一直向上抛给最近的 Suspense 边界。MonopolyGame.tsx 里包
+ * `<Board3D>` 的那层 Suspense fallback 是"3D 棋盘加载中..."——如果不在这个
+ * 文件内部单独处理，字体一卡，`fallback` 会永远显示，棋盘（不只是文字，
+ * 整个3D场景）就再也出不来了。所以下面每一处 <Text> 都单独包了一层
+ * `<Suspense fallback={null}>`：字体卡住时，只是对应的文字标签暂时不显示，
+ * 方块本身、颜色、棋子、骰子这些跟字体无关的内容不受影响，照常渲染。
  */
 
 const RING_SIZE = 7;
@@ -111,21 +121,23 @@ const TileMesh = React.memo(function TileMesh({ tile, owner, isCurrent }: TileMe
           <meshBasicMaterial color="#ffffff" transparent opacity={0.7} />
         </mesh>
       )}
-      <Text
-        position={[0, TILE_HEIGHT / 2 + 0.02, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.16}
-        maxWidth={TILE_FOOTPRINT - 0.15}
-        textAlign="center"
-        color="#1e293b"
-        anchorX="center"
-        anchorY="middle"
-        outlineWidth={0.006}
-        outlineColor="#ffffff"
-        font="/fonts/board-cjk.woff2"
-      >
-        {tile.name}
-      </Text>
+      <Suspense fallback={null}>
+        <Text
+          position={[0, TILE_HEIGHT / 2 + 0.02, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={0.16}
+          maxWidth={TILE_FOOTPRINT - 0.15}
+          textAlign="center"
+          color="#1e293b"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.006}
+          outlineColor="#ffffff"
+          font="/fonts/board-cjk.woff2"
+        >
+          {tile.name}
+        </Text>
+      </Suspense>
     </group>
   );
 });
@@ -249,19 +261,21 @@ export default function Board3D({ state, rolling }: { state: MonopolyState; roll
           <circleGeometry args={[2.15, 48]} />
           <meshStandardMaterial color="#818cf8" roughness={0.6} />
         </mesh>
-        <Text
-          position={[0, 0.02, 0]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          fontSize={0.55}
-          color="white"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.01}
-          outlineColor="#4338ca"
-          font="/fonts/board-cjk.woff2"
-        >
-          大富翁
-        </Text>
+        <Suspense fallback={null}>
+          <Text
+            position={[0, 0.02, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fontSize={0.55}
+            color="white"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.01}
+            outlineColor="#4338ca"
+            font="/fonts/board-cjk.woff2"
+          >
+            大富翁
+          </Text>
+        </Suspense>
 
         <Token3D role="host" targetIndex={state.economy.host.position} />
         <Token3D role="guest" targetIndex={state.economy.guest.position} />
