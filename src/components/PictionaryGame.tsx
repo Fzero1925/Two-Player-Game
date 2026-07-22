@@ -275,7 +275,7 @@ export default function PictionaryGame({
     }));
   };
 
-  const syncGameStateToBackend = async (finalLines: Stroke[], alternateStatus?: string) => {
+  const syncGameStateToBackend = async (finalLines: Stroke[], alternateStatus?: "waiting" | "playing" | "finished") => {
     if (room.room_code === "SINGLE") {
       setRoom((prev) => ({
         ...prev,

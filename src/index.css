@@ -1,7 +1,22 @@
 @import "tailwindcss";
 
+@theme {
+  /* 标题用——圆润有个性的展示字体，跟"两人一起玩游戏"的休闲调性更搭，
+     不是随手一个 system-ui/Inter 就完事的通用后台字体。 */
+  --font-display: "Fredoka", ui-rounded, "SF Pro Rounded", sans-serif;
+  /* 正文/UI用——跟 Fredoka 的圆润笔触气质接近，但更收敛，适合长文字。 */
+  --font-body: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  /* 房间号这类"代码感"文本专用——等宽、数字对齐，一眼能看出这是要抄下来用的东西。 */
+  --font-code: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+body {
+  font-family: var(--font-body);
+}
+
 /* 棋子轻微悬浮动效——配合棋盘的立体块效果，让棋子看起来像是"站"在格子上，
-   而不是贴在平面上的图标。所有游戏的 <Token/> 都可以选用这个 class。 */
+   而不是贴在平面上的图标。所有游戏的 <Token/> 都可以选用这个 class。
+   首页的悬浮棋子签名视觉也复用了同一个动画。 */
 @keyframes token-float {
   0%,
   100% {
@@ -13,4 +28,25 @@
 }
 .token-float {
   animation: token-float 1.8s ease-in-out infinite;
+}
+
+/* 统一的"立体卡片"质感——内侧顶部高光 + 底部投影，比 Tailwind 默认的 shadow-sm
+   更有"实体感"，用在头部条/玩家信息卡这类大面积白色卡片上，跟棋盘格子/骰子/
+   棋子那套立体语言统一起来，而不是棋盘立体、外面的卡片还是纯平的两套画风。 */
+.raised-card {
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+}
+
+/* 可点击/可交互的卡片用这个而不是 raised-card：悬浮时阴影加深+轻微上浮，
+   给"这是能点的东西"一个明确的反馈。首页游戏选择卡片在用。 */
+.raised-card-hover {
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.07), 0 1px 2px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+.raised-card-hover:hover {
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1), 0 2px 5px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
+  transform: translateY(-2px);
 }

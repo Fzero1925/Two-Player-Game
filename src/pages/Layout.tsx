@@ -11,7 +11,7 @@ import { Gamepad2 } from "lucide-react";
 export default function Layout() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-500/20 selection:text-indigo-900">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(79,70,229,0.04),transparent_45%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(79,70,229,0.06),transparent_45%),radial-gradient(circle_at_100%_20%,rgba(139,92,246,0.05),transparent_40%)] pointer-events-none" />
 
       <header className="border-b border-slate-200 relative z-10 backdrop-blur-md bg-white/90">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -20,7 +20,7 @@ export default function Layout() {
               <Gamepad2 className="text-white" size={20} />
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-tight font-sans text-slate-800">
+              <h1 className="text-lg font-display font-semibold tracking-tight text-slate-800">
                 DUO<span className="text-indigo-600">PLAY</span>
               </h1>
               <span className="text-[10px] text-slate-500 block font-medium uppercase tracking-wider">

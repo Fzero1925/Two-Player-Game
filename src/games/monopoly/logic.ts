@@ -23,6 +23,10 @@ export interface MonopolyState {
   currentTurn: PlayerRole;
   turnCount: number;
   lastDiceRoll: number | null;
+  /** 两颗骰子各自的点数（比如 [5,5]），UI 用这个画两颗骰子；lastDiceRoll 是它们的和，
+   *  用于实际移动格数。之前只存了和，界面上就只能囫囵显示一颗骰子，跟"5+5"这种
+   *  双数提示文字对不上——这是那个问题的根因，这次把它修好了。 */
+  lastDice: [number, number] | null;
   /** 当前玩家本回合内连续掷出双数的次数，换人时清零。用来判断"是否该送进监狱"。 */
   consecutiveDoubles: number;
   /** 这一次投掷是双数、且不是连续第3次——本次动作结算完之后，同一个人还能再掷一次。 */
@@ -49,6 +53,7 @@ export function getInitialMonopolyState(): MonopolyState {
     currentTurn: "host",
     turnCount: 0,
     lastDiceRoll: null,
+    lastDice: null,
     consecutiveDoubles: 0,
     pendingBonusRoll: false,
     lastEvent: "游戏开始！轮到 host 掷骰子。",
@@ -202,6 +207,7 @@ export function rollDiceAndMove(state: MonopolyState, role: PlayerRole): Monopol
     return advanceTurn({
       ...state,
       lastDiceRoll: dice,
+      lastDice: [d1, d2],
       consecutiveDoubles: 0,
       pendingBonusRoll: false,
       economy: { ...state.economy, [role]: { ...player, position: JAIL_TILE_INDEX } },
@@ -221,6 +227,7 @@ export function rollDiceAndMove(state: MonopolyState, role: PlayerRole): Monopol
   let nextState: MonopolyState = {
     ...state,
     lastDiceRoll: dice,
+    lastDice: [d1, d2],
     consecutiveDoubles,
     pendingBonusRoll: isDouble,
     economy: {

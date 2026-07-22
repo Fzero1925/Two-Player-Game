@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { Room, GomokuState, Player } from "../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../lib/roomManager.js";
 import { Play, RotateCcw, ShieldAlert, Wifi, WifiOff, Users, ArrowLeft, Trophy } from "lucide-react";
+import { useTurnReminder } from "../games/shared/useTurnReminder.js";
+import TurnReminderToggle from "../games/shared/TurnReminderToggle.js";
 
 interface GomokuGameProps {
   room: Room;
@@ -74,6 +76,10 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
     room.status === "playing" &&
     ((gameState?.current_turn === "host" && isHost) ||
       (gameState?.current_turn === "guest" && isGuest));
+  const { permission: reminderPermission, requestPermission: requestReminderPermission } = useTurnReminder(
+    isMyTurn,
+    "五子棋"
+  );
 
   // AI Logic for Single Player Mode
   const makeAiMove = () => {
@@ -425,6 +431,11 @@ export default function GomokuGame({ room: initialRoom, role, onLeave }: GomokuG
             <h2 className="text-xl md:text-2xl font-bold font-sans text-slate-800 tracking-tight mt-1">
               联机对局
             </h2>
+            {room.room_code !== "SINGLE" && (
+              <div className="mt-2">
+                <TurnReminderToggle permission={reminderPermission} onRequest={requestReminderPermission} />
+              </div>
+            )}
           </div>
         </div>
 

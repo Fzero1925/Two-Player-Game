@@ -1,34 +1,19 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import { Room, Player } from "../../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../../lib/roomManager.js";
-import { BOARD, COLOR_GROUPS, TILE_TYPE_ACCENT, TileType } from "./board.js";
+import { BOARD, COLOR_GROUPS } from "./board.js";
 import { MonopolyState, PlayerRole, rollDiceAndMove, resolveBuyDecision, sellPropertyToCoverDebt } from "./logic.js";
-import {
-  ArrowLeft,
-  Wifi,
-  WifiOff,
-  Trophy,
-  Coins,
-  Flag,
-  Sparkles,
-  Landmark,
-  Lock,
-  ParkingCircle,
-  ShieldAlert,
-} from "lucide-react";
-
-// 每种格子类型对应的小图标，一眼区分格子类型（比纯文字更直观）。
-const TILE_ICON: Record<TileType, React.ComponentType<{ size?: number; className?: string }>> = {
-  go: Flag,
-  property: Coins,
-  chance: Sparkles,
-  tax: Landmark,
-  jail: Lock,
-  free_parking: ParkingCircle,
-  go_to_jail: ShieldAlert,
-};
+import { ArrowLeft, Wifi, WifiOff, Trophy, Coins } from "lucide-react";
 import Dice, { rollWithAnimation } from "../shared/Dice.js";
-import Token from "../shared/Token.js";
+import { useTurnReminder } from "../shared/useTurnReminder.js";
+import TurnReminderToggle from "../shared/TurnReminderToggle.js";
+
+// 懒加载3D棋盘：three.js + @react-three/fiber + @react-three/drei 加起来
+// 有小几百KB，如果直接 import，这些代码会被打进主bundle——意味着首页、
+// 五子棋、翻牌配对这些完全不需要3D的页面也要背上这个体积，手机上尤其伤。
+// 用 React.lazy 之后，这部分代码会被 Vite 单独分包，只有真正点进大富翁
+// 这一局时才会去下载，其他游戏和首页完全不受影响。
+const Board3D = lazy(() => import("./Board3D.js"));
 
 interface MonopolyGameProps {
   room: Room;
@@ -38,22 +23,6 @@ interface MonopolyGameProps {
 
 const ROLE_LABEL: Record<PlayerRole, string> = { host: "房主", guest: "访客" };
 const ROLE_COLOR: Record<PlayerRole, string> = { host: "bg-indigo-500", guest: "bg-amber-500" };
-
-// Maps a linear tile index (0..23) onto a 7x7 grid ring (perimeter = 4*7-4 = 24),
-// starting top-left, going clockwise — this is the classic "hollow square" board
-// topology real Monopoly boards use.
-const RING_SIZE = 7;
-function ringPosition(index: number): { row: number; col: number } {
-  const n = RING_SIZE;
-  if (index < n) return { row: 1, col: index + 1 };
-  if (index < n + (n - 1)) return { row: index - n + 2, col: n };
-  if (index < n + 2 * (n - 1)) return { row: n, col: n - (index - (n + (n - 1))) - 1 };
-  return { row: n - (index - (n + 2 * (n - 1))) - 1, col: 1 };
-}
-function ringPercent(index: number): { left: number; top: number } {
-  const { row, col } = ringPosition(index);
-  return { left: ((col - 0.5) / RING_SIZE) * 100, top: ((row - 0.5) / RING_SIZE) * 100 };
-}
 
 export default function MonopolyGame({ room: initialRoom, role, onLeave }: MonopolyGameProps) {
   const [room, setRoom] = useState<Room>(initialRoom);
@@ -146,6 +115,10 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
   const guestOnline = room.room_code === "SINGLE" ? true : isPlayerOnline(players.guest);
 
   const myTurn = myRole !== null && state.currentTurn === myRole && !state.winner;
+  const { permission: reminderPermission, requestPermission: requestReminderPermission } = useTurnReminder(
+    myTurn,
+    "简化版大富翁"
+  );
   const canRoll = myTurn && !state.pendingDecision && !rolling;
   const myPendingDecision =
     state.pendingDecision && myRole && state.pendingDecision.forPlayer === myRole ? state.pendingDecision : null;
@@ -207,7 +180,7 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
     return (
       <div
         className={`flex-1 bg-white border ${
-          state.currentTurn === r && !state.winner ? "border-indigo-400 shadow-md" : "border-slate-200"
+          state.currentTurn === r && !state.winner ? "border-indigo-400 shadow-md" : "border-slate-200 raised-card"
         } rounded-2xl p-4 flex flex-col gap-2`}
       >
         <div className="flex items-center justify-between">
@@ -232,7 +205,7 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 md:py-10">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 bg-white border border-slate-200 p-4 md:p-6 rounded-2xl shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 bg-white border border-slate-200 p-4 md:p-6 rounded-2xl raised-card">
         <div className="flex items-center gap-4">
           <button
             onClick={onLeave}
@@ -247,6 +220,11 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
             <p className="text-xs text-slate-500">
               房间号：{room.room_code} · 双数可再掷一次（连续3次送进监狱）· 集齐同色地产租金翻倍
             </p>
+            {room.room_code !== "SINGLE" && (
+              <div className="mt-2">
+                <TurnReminderToggle permission={reminderPermission} onRequest={requestReminderPermission} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -256,7 +234,10 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
             disabled={!canRoll}
             className="flex items-center gap-3 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-sm transition"
           >
-            <Dice value={state.lastDiceRoll} rolling={rolling} size={32} />
+            <div className="flex items-center gap-1.5">
+              <Dice value={state.lastDice ? state.lastDice[0] : null} rolling={rolling} size={26} />
+              <Dice value={state.lastDice ? state.lastDice[1] : null} rolling={rolling} size={26} />
+            </div>
             {myTurn ? (state.pendingDecision ? "请先完成上一步决定" : rolling ? "骰子转动中..." : "掷骰子") : "等待对方操作..."}
           </button>
         ) : (
@@ -277,112 +258,31 @@ export default function MonopolyGame({ room: initialRoom, role, onLeave }: Monop
         {renderPlayerCard("guest", players.guest, guestOnline)}
       </div>
 
-      {/* Board — classic "hollow square" ring layout, 24 tiles around a 7x7 grid,
-          with an info panel in the empty center and animated player tokens. */}
-      <div className="relative w-full aspect-square max-w-2xl mx-auto mb-6 select-none">
-        <div
-          className="grid w-full h-full gap-1"
-          style={{ gridTemplateColumns: `repeat(${RING_SIZE}, 1fr)`, gridTemplateRows: `repeat(${RING_SIZE}, 1fr)` }}
-        >
-          {BOARD.map((tile) => {
-            const { row, col } = ringPosition(tile.index);
-            const owner = state.ownership[tile.index];
-            // 地产格用分组配色，非地产格（起点/机会/税务/监狱等）用类型配色——
-            // 两者合起来保证棋盘上每一格都有颜色，不会再出现大片空白格子。
-            const theme = tile.colorGroup ? COLOR_GROUPS[tile.colorGroup] : TILE_TYPE_ACCENT[tile.type];
-            const Icon = TILE_ICON[tile.type];
-            const isCurrentTile =
-              !state.winner &&
-              (state.economy.host.position === tile.index || state.economy.guest.position === tile.index);
-            return (
-              <div
-                key={tile.index}
-                style={{ gridRow: row, gridColumn: col }}
-                title={
-                  tile.price
-                    ? `${tile.name} · 购买价 ${tile.price} 元 · 租金 ${tile.rent} 元`
-                    : tile.taxAmount
-                    ? `${tile.name} · 缴税 ${tile.taxAmount} 元`
-                    : tile.name
-                }
-                // 注意：这里不能给当前格加 z-index（哪怕只是让它"浮起来"的视觉效果），
-                // 因为 CSS 里 grid item 的 z-index 即使没设置 position 也会生效，会盖过
-                // 下面棋子那层 absolute 定位的 div——之前棋子"消失"就是栽在这个坑上。
-                className={`relative border rounded-lg border-b-4 p-1 text-[8px] sm:text-[9px] flex flex-col justify-between overflow-hidden transition-transform shadow-[0_2px_3px_rgba(15,23,42,0.12),inset_0_1px_0_0_rgba(255,255,255,0.65)] ${
-                  owner
-                    ? owner === "host"
-                      ? "bg-indigo-50 border-indigo-300 border-b-indigo-500 ring-2 ring-indigo-300"
-                      : "bg-amber-50 border-amber-300 border-b-amber-500 ring-2 ring-amber-300"
-                    : theme
-                    ? `${theme.bg} ${theme.border} ${theme.edge}`
-                    : "bg-white border-slate-200 border-b-slate-300"
-                } ${isCurrentTile ? "scale-[1.06]" : ""}`}
-              >
-                {/* Color band strip — the classic Monopoly "property group" cue.
-                    Shown on every unowned tile now (property groups + tile-type accents),
-                    owner tint takes over once a property tile is bought. */}
-                {theme && !owner && <div className={`absolute top-0 left-0 right-0 h-1.5 ${theme.bar}`} />}
-                <div
-                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center mt-0.5 ${
-                    theme && !owner ? `${theme.bar} text-white` : "bg-slate-200 text-slate-500"
-                  }`}
-                >
-                  <Icon size={9} />
-                </div>
-                <span className="font-semibold text-slate-700 leading-tight line-clamp-2">{tile.name}</span>
-                {tile.price && <span className="text-slate-400">${tile.price}</span>}
-              </div>
-            );
-          })}
-
-          {/* Center info panel — occupies the hollow middle of the ring */}
-          <div
-            style={{ gridRow: `2 / ${RING_SIZE}`, gridColumn: `2 / ${RING_SIZE}` }}
-            className="relative bg-gradient-to-br from-indigo-50 via-white to-amber-50 border border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 p-3 text-center overflow-hidden"
-          >
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">简化版大富翁</span>
-            <div className="flex items-center gap-2 text-[10px] sm:text-xs">
-              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${state.currentTurn === "host" && !state.winner ? "bg-indigo-100 text-indigo-700 font-bold" : "text-slate-400"}`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                {players.host?.name || "房主"}
-              </span>
-              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${state.currentTurn === "guest" && !state.winner ? "bg-amber-100 text-amber-700 font-bold" : "text-slate-400"}`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                {players.guest?.name || "访客"}
-              </span>
-            </div>
-            {state.lastEvent && (
-              <p className="text-[11px] sm:text-xs text-slate-600 leading-snug bg-white/70 rounded-lg px-2 py-1.5 shadow-sm">
-                {state.lastEvent}
-              </p>
-            )}
-          </div>
+      {/* Event feed — 之前2D棋盘时这段文字是放在棋盘中间空心区域里的，3D棋盘
+          没有对应的"空心中心"能塞文字进去（塞了也会被摄像机角度挡住/太小看不清），
+          所以单独拎出来放棋盘上方，不能删，否则买地/交租金/抽机会卡这些关键
+          反馈就没地方显示了。 */}
+      {state.lastEvent && (
+        <div className="mb-6 bg-slate-100 border border-slate-200 text-slate-600 text-sm px-4 py-3 rounded-xl">
+          {state.lastEvent}
         </div>
+      )}
 
-        {/* Animated player tokens, overlaid on top of the grid using percentage coordinates.
-            z-20 here is deliberate and load-bearing: it guarantees tokens always render
-            above every board tile, even ones with their own transform/scale effects. */}
-        {(["host", "guest"] as PlayerRole[]).map((r) => {
-          const { left, top } = ringPercent(state.economy[r].position);
-          const offset = r === "host" ? -7 : 7; // nudge apart so both tokens are visible on the same tile
-          return (
-            <div
-              key={r}
-              className="absolute z-20 transition-all duration-500 ease-out drop-shadow-md"
-              style={{
-                left: `calc(${left}% + ${offset}px)`,
-                top: `calc(${top}% + ${offset}px)`,
-                transform: "translate(-50%, -50%)",
-              }}
-              title={ROLE_LABEL[r]}
-            >
-              <Token role={r} size={22} />
-            </div>
-          );
-        })}
-      </div>
+      {/* Board — 3D 场景，纯展示层，逻辑仍然是 logic.ts 里那一套，Board3D 只是
+          把 state 画出来。懒加载，见文件顶部 lazy() 的注释。加载占位保持和
+          Board3D 内部容器同样的尺寸（aspect-square max-w-2xl），避免代码
+          下载完成后棋盘"跳出来"引起页面布局跳动。 */}
+      <Suspense
+        fallback={
+          <div className="relative w-full aspect-square max-w-2xl mx-auto mb-6 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center">
+            <span className="text-xs text-slate-400">3D 棋盘加载中...</span>
+          </div>
+        }
+      >
+        <Board3D state={state} rolling={rolling} />
+      </Suspense>
 
-      {/* Color-group legend — explains the colored bar strips on the board above */}
+      {/* Color-group legend — explains each color group even from the 3D camera angle */}
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mb-6 max-w-2xl mx-auto">
         {Object.entries(COLOR_GROUPS).map(([key, group]) => (
           <div key={key} className="flex items-center gap-1.5 text-[10px] text-slate-500">

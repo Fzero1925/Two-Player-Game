@@ -51,6 +51,31 @@ export const COLOR_GROUPS: Record<string, { bar: string; bg: string; border: str
 const COLOR_GROUP_ORDER = ["brown", "cyan", "pink", "orange", "red", "yellow", "green"];
 
 /**
+ * 3D棋盘（Board3D.tsx）用的实际十六进制色值——three.js 的材质要真实颜色，
+ * 不能直接吃 Tailwind class 字符串。这里的每个色值都对应上面 Tailwind
+ * class 用的同一个色号（比如 amber-700 = #b45309），保证2D/3D两个版本
+ * 看起来是同一套配色体系，不是两套视觉语言。
+ */
+export const COLOR_HEX: Record<string, { top: string; side: string; owned: { host: string; guest: string } }> = {
+  brown: { top: "#f59e0b", side: "#b45309", owned: { host: "#4338ca", guest: "#b45309" } },
+  cyan: { top: "#22d3ee", side: "#0e7490", owned: { host: "#4338ca", guest: "#b45309" } },
+  pink: { top: "#f472b6", side: "#be185d", owned: { host: "#4338ca", guest: "#b45309" } },
+  orange: { top: "#fb923c", side: "#c2410c", owned: { host: "#4338ca", guest: "#b45309" } },
+  red: { top: "#f87171", side: "#b91c1c", owned: { host: "#4338ca", guest: "#b45309" } },
+  yellow: { top: "#facc15", side: "#a16207", owned: { host: "#4338ca", guest: "#b45309" } },
+  green: { top: "#34d399", side: "#047857", owned: { host: "#4338ca", guest: "#b45309" } },
+};
+
+export const TILE_TYPE_HEX: Partial<Record<TileType, { top: string; side: string }>> = {
+  go: { top: "#2dd4bf", side: "#0f766e" },
+  chance: { top: "#a78bfa", side: "#6d28d9" },
+  tax: { top: "#fb7185", side: "#be123c" },
+  jail: { top: "#cbd5e1", side: "#64748b" },
+  free_parking: { top: "#38bdf8", side: "#0369a1" },
+  go_to_jail: { top: "#fb923c", side: "#9a3412" },
+};
+
+/**
  * 非地产格（起点/机会/税务/监狱/免费停车/进监狱）也各自给一个主题色，
  * 之前这些格子是纯白/纯灰，整个棋盘看起来很单调——现在每种类型都有
  * 辨识度很强的底色，一眼就能分清格子类型，不用凑近看文字。

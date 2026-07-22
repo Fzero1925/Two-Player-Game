@@ -1,28 +1,34 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import { Room, Player } from "../../types.js";
 import { roomManager, getOrCreatePlayer, isPlayerOnline } from "../../lib/roomManager.js";
 import {
   TRACK_LENGTH,
   HOME_STRETCH_LENGTH,
   TOTAL_PATH_LENGTH,
-  COLOR_START_INDEX,
   ROLE_COLORS,
   COLOR_LABEL,
   COLOR_SHADES,
-  SAFE_CELLS,
   PieceColor,
 } from "./board.js";
 import {
   FlightChessState,
   PlayerRole,
-  Piece,
   rollDiceForFlightChess,
   choosePieceForFlightChess,
   pieceLabel,
 } from "./logic.js";
-import { ArrowLeft, Wifi, WifiOff, Trophy, Star } from "lucide-react";
+import { ArrowLeft, Wifi, WifiOff, Trophy } from "lucide-react";
+import { useTurnReminder } from "../shared/useTurnReminder.js";
+import TurnReminderToggle from "../shared/TurnReminderToggle.js";
 import Dice, { rollWithAnimation } from "../shared/Dice.js";
 import Token from "../shared/Token.js";
+
+// 懒加载3D棋盘，原因和写法跟 monopoly/MonopolyGame.tsx 里一致：three.js +
+// @react-three/fiber + @react-three/drei 加起来有小几百KB，不用 React.lazy
+// 的话这些代码会被打进主bundle，首页、五子棋、翻牌配对这些完全不需要3D的
+// 页面也要背上这个体积。用 lazy() 之后 Vite 单独分包，只有真正点进飞行棋
+// 这一局时才会去下载。
+const Board3D = lazy(() => import("./Board3D.js"));
 
 interface FlightChessGameProps {
   room: Room;
@@ -33,32 +39,6 @@ interface FlightChessGameProps {
 const ROLE_LABEL: Record<PlayerRole, string> = { host: "房主", guest: "访客" };
 const ROLE_DOT: Record<PlayerRole, string> = { host: "bg-indigo-500", guest: "bg-amber-500" };
 const ROLE_BG: Record<PlayerRole, string> = { host: "bg-indigo-50 border-indigo-200", guest: "bg-amber-50 border-amber-200" };
-
-// Places the 24 shared-track cells evenly around a circle (starting at the top,
-// going clockwise), so the board looks like an actual race track instead of a grid.
-const TRACK_RADIUS_PERCENT = 42;
-function trackCirclePercent(cell: number): { left: number; top: number } {
-  const angle = (cell / TRACK_LENGTH) * 2 * Math.PI - Math.PI / 2;
-  const left = 50 + TRACK_RADIUS_PERCENT * Math.cos(angle);
-  const top = 50 + TRACK_RADIUS_PERCENT * Math.sin(angle);
-  return { left, top };
-}
-
-// A piece's absolute cell on the shared track (or null if in base/home stretch),
-// keyed off the piece's own color start point (not the owning role).
-function pieceTrackCell(piece: Piece): number | null {
-  if (piece.step < 0 || piece.step >= TRACK_LENGTH) return null;
-  return (COLOR_START_INDEX[piece.color] + piece.step) % TRACK_LENGTH;
-}
-
-// Small fan-out offsets (in px) for up to 4 tokens sharing the same cell, so they
-// don't render exactly on top of each other and become unreadable.
-const CLUSTER_OFFSETS: Array<{ x: number; y: number }> = [
-  { x: -6, y: -6 },
-  { x: 6, y: -6 },
-  { x: -6, y: 6 },
-  { x: 6, y: 6 },
-];
 
 export default function FlightChessGame({ room: initialRoom, role, onLeave }: FlightChessGameProps) {
   const [room, setRoom] = useState<Room>(initialRoom);
@@ -138,6 +118,10 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
   const guestOnline = room.room_code === "SINGLE" ? true : isPlayerOnline(players.guest);
 
   const myTurn = myRole !== null && state.currentTurn === myRole && !state.winner;
+  const { permission: reminderPermission, requestPermission: requestReminderPermission } = useTurnReminder(
+    myTurn,
+    "飞行棋"
+  );
   const canRoll = myTurn && !state.pendingDecision && !rolling;
   const myPendingDecision =
     state.pendingDecision && myRole && state.pendingDecision.forPlayer === myRole ? state.pendingDecision : null;
@@ -175,19 +159,6 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
     }
   };
 
-  // Group every piece currently on the shared track by its absolute cell, so
-  // overlapping tokens (rare, but possible with 4 colors on one ring) fan out
-  // instead of stacking exactly on top of each other.
-  const cellOccupants: Record<number, Array<{ role: PlayerRole; piece: Piece; pieceIndex: number }>> = {};
-  (["host", "guest"] as PlayerRole[]).forEach((r) => {
-    state.pieces[r].forEach((piece, pieceIndex) => {
-      const cell = pieceTrackCell(piece);
-      if (cell === null) return;
-      if (!cellOccupants[cell]) cellOccupants[cell] = [];
-      cellOccupants[cell].push({ role: r, piece, pieceIndex });
-    });
-  });
-
   const renderPlayerCard = (r: PlayerRole, player: Player | null, online: boolean) => {
     const pieces = state.pieces[r];
     const inBase = pieces.filter((p) => p.step === -1).length;
@@ -196,7 +167,7 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
     return (
       <div
         className={`flex-1 bg-white border ${
-          state.currentTurn === r && !state.winner ? "border-indigo-400 shadow-md" : "border-slate-200"
+          state.currentTurn === r && !state.winner ? "border-indigo-400 shadow-md" : "border-slate-200 raised-card"
         } rounded-2xl p-4 flex flex-col gap-2`}
       >
         <div className="flex items-center justify-between">
@@ -247,6 +218,10 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
               <div
                 key={i}
                 className="w-6 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center"
+                style={{
+                  boxShadow:
+                    "0 1.5px 2px rgba(15,23,42,0.12), inset 0 1px 0 0 rgba(255,255,255,0.75), inset 0 -1.5px 1px 0 rgba(15,23,42,0.1)",
+                }}
               >
                 {found && <Token role={r} shades={COLOR_SHADES[color]} label={(found.idx % 4) + 1} size={14} />}
               </div>
@@ -263,7 +238,7 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 md:py-10">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 bg-white border border-slate-200 p-4 md:p-6 rounded-2xl shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 bg-white border border-slate-200 p-4 md:p-6 rounded-2xl raised-card">
         <div className="flex items-center gap-4">
           <button
             onClick={onLeave}
@@ -278,6 +253,11 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
             <p className="text-xs text-slate-500">
               房间号：{room.room_code} · 房主控制红/绿，访客控制蓝/黄 · 掷 1或6 起飞 · 掷 6 再来一次（连续3次作废）
             </p>
+            {room.room_code !== "SINGLE" && (
+              <div className="mt-2">
+                <TurnReminderToggle permission={reminderPermission} onRequest={requestReminderPermission} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -313,72 +293,19 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
         </div>
       )}
 
-      {/* Shared track — laid out as an actual circle, with tokens that slide
-          smoothly (CSS transition) instead of jumping between cells. Four
-          color-coded start points instead of two, spread evenly around it. */}
-      <div className="mb-6">
-        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">共享跑道（四色）</h3>
-        <div className="relative w-full aspect-square max-w-md mx-auto select-none">
-          {/* The circular track ring itself, drawn as a border */}
-          <div
-            className="absolute rounded-full border-4 border-dashed border-slate-200"
-            style={{ left: "8%", top: "8%", width: "84%", height: "84%" }}
-          />
-
-          {Array.from({ length: TRACK_LENGTH }, (_, cell) => {
-            const startColor = (Object.keys(COLOR_START_INDEX) as PieceColor[]).find(
-              (c) => COLOR_START_INDEX[c] === cell
-            );
-            const { left, top } = trackCirclePercent(cell);
-            return (
-              <div
-                key={cell}
-                className="absolute w-6 h-6 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center bg-white border-slate-200"
-                style={{
-                  left: `${left}%`,
-                  top: `${top}%`,
-                  transform: "translate(-50%, -50%)",
-                  ...(startColor
-                    ? { backgroundColor: COLOR_SHADES[startColor].light, borderColor: COLOR_SHADES[startColor].mid }
-                    : {}),
-                }}
-                title={startColor ? `${COLOR_LABEL[startColor]}色起飞格（安全）` : undefined}
-              >
-                {startColor && <Star size={10} style={{ color: COLOR_SHADES[startColor].dark }} />}
-              </div>
-            );
-          })}
-
-          {/* Animated tokens for every piece currently on the shared track, fanned
-              out within their cell if more than one piece happens to share it. */}
-          {Object.entries(cellOccupants).flatMap(([cellStr, occupants]) => {
-            const cell = Number(cellStr);
-            const { left, top } = trackCirclePercent(cell);
-            return occupants.map((occ, i) => {
-              const offset = CLUSTER_OFFSETS[i % CLUSTER_OFFSETS.length];
-              return (
-                <div
-                  key={`${occ.role}-${occ.pieceIndex}`}
-                  className="absolute transition-all duration-500 ease-out z-10 drop-shadow-md"
-                  style={{
-                    left: `calc(${left}% + ${offset.x}px)`,
-                    top: `calc(${top}% + ${offset.y}px)`,
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  title={`${ROLE_LABEL[occ.role]} ${pieceLabel(occ.piece, occ.pieceIndex)}`}
-                >
-                  <Token
-                    role={occ.role}
-                    shades={COLOR_SHADES[occ.piece.color]}
-                    label={(occ.pieceIndex % 4) + 1}
-                    size={18}
-                  />
-                </div>
-              );
-            });
-          })}
-        </div>
-      </div>
+      {/* Board — 3D 场景，纯展示层，逻辑仍然是 logic.ts 里那一套，Board3D 只是
+          把 state 画出来。懒加载，见文件顶部 lazy() 的注释。加载占位保持和
+          Board3D 内部容器同样的尺寸（aspect-square max-w-2xl），避免代码
+          下载完成后棋盘"跳出来"引起页面布局跳动。 */}
+      <Suspense
+        fallback={
+          <div className="relative w-full aspect-square max-w-2xl mx-auto mb-6 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center">
+            <span className="text-xs text-slate-400">3D 棋盘加载中...</span>
+          </div>
+        }
+      >
+        <Board3D state={state} rolling={rolling} />
+      </Suspense>
 
       {/* Per-player home stretches + camps — each player card now splits into
           their two colors side by side. */}
