@@ -26,6 +26,12 @@ import * as THREE from "three";
  *   世界坐标 +Y 即可，不用逐帧手算欧拉角），然后用 slerp 平滑转过去定格，
  *   并叠加一个随机偏航角——同样是"6朝上"，每次落地朝向也不完全一样，比每次
  *   摆出一模一样的姿势更像真的在桌上弹了一下。
+ *
+ * 点数造型（2026-07调整）：第一版点数球心本身就摆在骰子表面外侧，露出去的
+ * 部分接近整个球的4/5，看起来像表面凸起一颗颗小疙瘩。这次把球心挪到表面
+ * 内侧，只露出一个小圆帽，视觉上更接近"贴在骰面上的圆点"而不是"长出来的
+ * 凸起"；点数颜色也从靛蓝改成了近黑色（跟棋盘格子名文字同一个颜色），经典
+ * 骰子的黑点白底辨识度更高，不容易让人一眼看不出"这是个骰子"。
  */
 
 const PIP_UV: Record<number, Array<[number, number]>> = {
@@ -154,13 +160,13 @@ export default function Die3D({ value, rolling, position = [0, 0, 0], color = "#
         (PIP_UV[face.value] || PIP_UV[1]).map(([u, v], i) => {
           const p = face.normal
             .clone()
-            .multiplyScalar(HALF + PIP_RADIUS * 0.55)
+            .multiplyScalar(HALF - PIP_RADIUS * 0.3)
             .add(face.u.clone().multiplyScalar(u * PIP_SPACING))
             .add(face.v.clone().multiplyScalar(v * PIP_SPACING));
           return (
             <mesh key={`${face.value}-${i}`} position={[p.x, p.y, p.z]}>
               <sphereGeometry args={[PIP_RADIUS, 12, 12]} />
-              <meshStandardMaterial color="#4338ca" roughness={0.4} />
+              <meshStandardMaterial color="#1e293b" roughness={0.5} />
             </mesh>
           );
         })

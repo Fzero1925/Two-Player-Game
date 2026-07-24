@@ -351,8 +351,8 @@ export default function Board3D({ state, rolling }: { state: MonopolyState; roll
 
         {/* 两颗3D骰子，摆在中心装饰和外圈格子之间的空地上（偏相机一侧，
             不挡标题）。跟 header 的2D骰子共用同一个 rolling 状态。 */}
-        <Die3D value={state.lastDice ? state.lastDice[0] : null} rolling={rolling} position={[-0.36, 0.5, 2.7]} />
-        <Die3D value={state.lastDice ? state.lastDice[1] : null} rolling={rolling} position={[0.36, 0.5, 2.7]} />
+        <Die3D value={state.lastDice ? state.lastDice[0] : null} rolling={rolling} position={[-0.42, 0.5, 2.7]} />
+        <Die3D value={state.lastDice ? state.lastDice[1] : null} rolling={rolling} position={[0.42, 0.5, 2.7]} />
 
         <ContactShadows position={[0, -0.18, 0]} opacity={0.4} scale={13} blur={2.2} far={4} />
 
