@@ -237,8 +237,8 @@ export default function FlightChessGame({ room: initialRoom, role, onLeave }: Fl
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 md:py-10">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 bg-white border border-slate-200 p-4 md:p-6 rounded-2xl raised-card">
+      {/* Header — sticky：跟大富翁那边一致，掷骰子按钮不管往下滚多少都在视野里 */}
+      <div className="sticky top-2 z-20 flex flex-col md:flex-row justify-between items-center gap-4 mb-6 bg-white/95 backdrop-blur border border-slate-200 p-4 md:p-6 rounded-2xl raised-card">
         <div className="flex items-center gap-4">
           <button
             onClick={onLeave}

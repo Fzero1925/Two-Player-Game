@@ -136,3 +136,20 @@ export const JAIL_TILE_INDEX = BOARD.findIndex((t) => t.type === "jail");
 export const STARTING_CASH = 1500;
 export const PASS_GO_BONUS = 200;
 export const MAX_TURNS = 30; // per player, i.e. 30 rounds total before scoring by net worth
+
+/**
+ * 房屋升级（2026-07新增）。经典大富翁规则的简化版：
+ *  - 必须先集齐某个色组的全部地产，才能开始给组内地块升级（复用已有的
+ *    "集齐同色地产"判定，不是另起一套规则）。
+ *  - 每块地产可以升到 1/2/3 级（对应地皮 → 小屋 → 大宅 → 豪宅/酒店的
+ *    3D外观变化，见 monopoly/Board3D.tsx 的 UpgradeBuilding 组件）。
+ *  - `UPGRADE_COST_MULTIPLIERS[i]` 是升到第 i+1 级要花的钱（地产原价的
+ *    倍数）——越往后越贵，累计投入是原价的 0.5+0.6+0.8=1.9 倍才能封顶，
+ *    跟真实大富翁"盖房子越往后越贵"的手感一致。
+ *  - `UPGRADE_RENT_MULTIPLIERS[i]` 是升到第 i+1 级之后，租金相对"地块
+ *    自身基础租金"的倍数（不再叠加"集齐同色翻倍"——升级之后用升级倍数，
+ *    没升级、但集齐同色的沿用原来的×2）。
+ */
+export const MAX_HOUSE_LEVEL = 3;
+export const UPGRADE_COST_MULTIPLIERS = [0.5, 0.6, 0.8];
+export const UPGRADE_RENT_MULTIPLIERS = [3, 6, 10];

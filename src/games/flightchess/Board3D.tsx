@@ -1,6 +1,6 @@
-import React, { Suspense, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Text, ContactShadows } from "@react-three/drei";
+import { OrbitControls, Html, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import {
   TRACK_LENGTH,
@@ -14,6 +14,7 @@ import {
 } from "./board.js";
 import { FlightChessState, PlayerRole } from "./logic.js";
 import Die3D from "../shared/Die3D.js";
+import Piece3D from "../shared/Piece3D.js";
 
 /**
  * 飞行棋 3D 棋盘——纯展示层，不含任何游戏逻辑（逻辑都在 logic.ts，这个组件
@@ -41,14 +42,11 @@ import Die3D from "../shared/Die3D.js";
  *    判断"顺时针/逆时针哪边近"。起飞（-1→0）和被撞回营地（N→-1）这两种
  *    跨区域跳变，跟大富翁机会卡传送同样处理：直接原地出现/消失，没有
  *    "沿一条线走"的中间态可言。
- *  - 中文字体：跟大富翁共用同一份 /fonts/board-cjk.woff2 子集字体（见
- *    monopoly/Board3D.tsx 顶部注释里字体子集化的说明和重新生成方法），
- *    这个文件用到的新增字是"飞行棋红蓝绿黄"，已经包含在子集里。
- *  - 【健壮性】原因同样写在 monopoly/Board3D.tsx 顶部注释里：drei 的 <Text>
- *    字体加载失败/卡住时会一直向上抛，抛到 FlightChessGame.tsx 里包
- *    `<Board3D>` 的 Suspense 就再也回不来，整个棋盘（不只是文字）会卡在
- *    "3D 棋盘加载中..."出不来。所以下面每一处 <Text> 都单独包了一层
- *    `<Suspense fallback={null}>` 兜底。
+ *  - 文字：跟大富翁一样改用了 drei 的 <Html>，不再用 <Text>/troika 字体
+ *    子集这条路线——原因见 monopoly/Board3D.tsx 顶部注释（字体加载失败/
+ *    卡住会让整个棋盘卡在"加载中"出不来，这是实际发生过的线上问题）。
+ *  - 棋子：用共享的 Piece3D（见 shared/Piece3D.tsx），跟大富翁棋子是同一套
+ *    造型，只是颜色传的是这个游戏自己的四色配色。
  */
 
 const RING_RADIUS = 4.3;
@@ -216,17 +214,18 @@ function FlightPiece3D({ color, step, pieceIndex }: FlightPieceProps) {
     const g = groupRef.current;
     if (!g) return;
     const bob = Math.sin(performance.now() / 700 + colorSlot) * 0.03;
+    const REST_Y = CELL_HEIGHT / 2;
 
     if (step === -1) {
       const [bx, bz] = baseSlotWorldPos(color, colorSlot);
-      g.position.set(bx, 0.26 + bob, bz);
+      g.position.set(bx, REST_Y + bob, bz);
       return;
     }
 
     const path = pathRef.current;
     if (path.length === 0) {
       const [px, pz] = pieceStepWorldPos(color, step);
-      g.position.set(px + micro[0], 0.26 + bob, pz + micro[1]);
+      g.position.set(px + micro[0], REST_Y + bob, pz + micro[1]);
       return;
     }
 
@@ -243,7 +242,7 @@ function FlightPiece3D({ color, step, pieceIndex }: FlightPieceProps) {
     const [tx, tz] = pieceStepWorldPos(color, toStepVal);
     const eased = segT * segT * (3 - 2 * segT); // smoothstep，起停更柔和
     const hopArc = Math.sin(segT * Math.PI) * 0.14;
-    g.position.set(fx + (tx - fx) * eased + micro[0], 0.26 + hopArc + bob, fz + (tz - fz) * eased + micro[1]);
+    g.position.set(fx + (tx - fx) * eased + micro[0], REST_Y + hopArc + bob, fz + (tz - fz) * eased + micro[1]);
   });
 
   const [initX, initZ] = step === -1 ? baseSlotWorldPos(color, colorSlot) : pieceStepWorldPos(color, step);
@@ -252,15 +251,8 @@ function FlightPiece3D({ color, step, pieceIndex }: FlightPieceProps) {
   const offZ = step === -1 ? 0 : micro[1];
 
   return (
-    <group ref={groupRef} position={[initX + offX, 0.26, initZ + offZ]}>
-      <mesh castShadow>
-        <sphereGeometry args={[0.2, 20, 20]} />
-        <meshStandardMaterial color={shade.mid} roughness={0.3} metalness={0.15} />
-      </mesh>
-      <mesh position={[0, -0.22, 0]}>
-        <cylinderGeometry args={[0.13, 0.16, 0.05, 14]} />
-        <meshStandardMaterial color={shade.dark} roughness={0.6} />
-      </mesh>
+    <group ref={groupRef} position={[initX + offX, CELL_HEIGHT / 2, initZ + offZ]}>
+      <Piece3D colorMid={shade.mid} colorDark={shade.dark} scale={0.85} />
     </group>
   );
 }
@@ -320,41 +312,32 @@ export default function Board3D({ state, rolling }: { state: FlightChessState; r
           <circleGeometry args={[0.85, 40]} />
           <meshStandardMaterial color="#8b5cf6" roughness={0.6} />
         </mesh>
-        <Suspense fallback={null}>
-          <Text
-            position={[0, 0.02, 0]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            fontSize={0.34}
-            color="white"
-            anchorX="center"
-            anchorY="middle"
-            outlineWidth={0.008}
-            outlineColor="#6d28d9"
-            font="/fonts/board-cjk.woff2"
+        <Html position={[0, 0.02, 0]} center style={{ pointerEvents: "none" }}>
+          <div
+            className="text-white font-black text-xl tracking-wide select-none"
+            style={{ textShadow: "0 2px 8px rgba(109,40,217,0.6)" }}
           >
             飞行棋
-          </Text>
-        </Suspense>
+          </div>
+        </Html>
 
         {COLORS.map((color) => {
           const a = ringAngle(COLOR_START_INDEX[color]);
           const labelRadius = RING_RADIUS + 0.75;
           return (
-            <Suspense fallback={null} key={`label-${color}`}>
-              <Text
-                position={[Math.cos(a) * labelRadius, 0.05, Math.sin(a) * labelRadius]}
-                rotation={[-Math.PI / 2, 0, 0]}
-                fontSize={0.24}
-                color={COLOR_SHADES[color].dark}
-                anchorX="center"
-                anchorY="middle"
-                outlineWidth={0.005}
-                outlineColor="#ffffff"
-                font="/fonts/board-cjk.woff2"
+            <Html
+              key={`label-${color}`}
+              position={[Math.cos(a) * labelRadius, 0.05, Math.sin(a) * labelRadius]}
+              center
+              style={{ pointerEvents: "none" }}
+            >
+              <div
+                className="text-xs font-bold px-1.5 py-0.5 rounded-md bg-white/90 shadow-sm select-none"
+                style={{ color: COLOR_SHADES[color].dark }}
               >
                 {COLOR_LABEL[color]}
-              </Text>
-            </Suspense>
+              </div>
+            </Html>
           );
         })}
 

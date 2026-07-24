@@ -1,4 +1,14 @@
-import { BOARD, BOARD_SIZE, JAIL_TILE_INDEX, STARTING_CASH, PASS_GO_BONUS, MAX_TURNS } from "./board.js";
+import {
+  BOARD,
+  BOARD_SIZE,
+  JAIL_TILE_INDEX,
+  STARTING_CASH,
+  PASS_GO_BONUS,
+  MAX_TURNS,
+  MAX_HOUSE_LEVEL,
+  UPGRADE_COST_MULTIPLIERS,
+  UPGRADE_RENT_MULTIPLIERS,
+} from "./board.js";
 import { ChanceCard, drawChanceCard } from "./chanceCards.js";
 
 export type PlayerRole = "host" | "guest";
@@ -34,6 +44,10 @@ export interface MonopolyState {
   lastEvent: string | null;
   pendingDecision: PendingDecision | null;
   winner: PlayerRole | "draw" | null;
+  /** 地产升级等级：key是格子下标，value是0~3。只有集齐同色地产全部地块
+   *  才能开始升级，具体规则和花费/租金倍数见 board.ts 里的常量说明。
+   *  没出现在这个对象里的地块视为0级（刚买下，还没升级）。 */
+  houseLevel: Record<number, number>;
 }
 
 function otherRole(role: PlayerRole): PlayerRole {
@@ -59,6 +73,7 @@ export function getInitialMonopolyState(): MonopolyState {
     lastEvent: "游戏开始！轮到 host 掷骰子。",
     pendingDecision: null,
     winner: null,
+    houseLevel: {},
   };
 }
 
@@ -66,7 +81,10 @@ function netWorth(state: MonopolyState, role: PlayerRole): number {
   const p = state.economy[role];
   const propertyValue = p.ownedTiles.reduce((sum, idx) => {
     const tile = BOARD[idx];
-    return sum + (tile?.price || 0);
+    const price = tile?.price || 0;
+    const level = state.houseLevel[idx] || 0;
+    const investedInHouses = UPGRADE_COST_MULTIPLIERS.slice(0, level).reduce((s, m) => s + price * m, 0);
+    return sum + price + investedInHouses;
   }, 0);
   return p.cash + propertyValue;
 }
@@ -115,9 +133,10 @@ function resolveNegativeCash(state: MonopolyState, role: PlayerRole): MonopolySt
 
 const ROLE_LABEL_INTERNAL: Record<PlayerRole, string> = { host: "房主", guest: "访客" };
 
-/** 某一方是否集齐了某个色组的全部地产——集齐后租金翻倍，这是让"攒同色地产"
- *  这个策略有意义的最小实现，不需要做完整的盖房子系统。 */
-function ownsFullColorGroup(state: MonopolyState, owner: PlayerRole, colorGroup: string | undefined): boolean {
+/** 某一方是否集齐了某个色组的全部地产——集齐后租金翻倍，也是能开始升级
+ *  的前提条件。导出给 UI 层复用（判断"这块地现在能不能升级"），避免两处
+ *  各写一份、逻辑跑偏。 */
+export function ownsFullColorGroup(state: MonopolyState, owner: PlayerRole, colorGroup: string | undefined): boolean {
   if (!colorGroup) return false;
   const groupTileIndices = BOARD.filter((t) => t.type === "property" && t.colorGroup === colorGroup).map(
     (t) => t.index
@@ -285,9 +304,12 @@ export function rollDiceAndMove(state: MonopolyState, role: PlayerRole): Monopol
       nextState = { ...nextState, lastEvent: `${event} 停在自己的地产「${tile.name}」，无事发生。` };
       return finishTurn(nextState);
     }
-    // Owned by opponent — pay rent. 集齐同色地产租金翻倍。
+    // Owned by opponent — pay rent. 升级过的地产用升级倍数；没升级但集齐
+    // 同色地产的，沿用原本"集齐同色租金翻倍"规则。
+    const houseLevel = nextState.houseLevel[newPosition] || 0;
     const hasMonopoly = ownsFullColorGroup(nextState, owner, tile.colorGroup);
-    const rent = (tile.rent || 0) * (hasMonopoly ? 2 : 1);
+    const rentMultiplier = houseLevel > 0 ? UPGRADE_RENT_MULTIPLIERS[houseLevel - 1] : hasMonopoly ? 2 : 1;
+    const rent = (tile.rent || 0) * rentMultiplier;
     const payerCash = nextState.economy[role].cash - rent;
     const ownerCash = nextState.economy[owner].cash + rent;
     nextState = {
@@ -298,7 +320,7 @@ export function rollDiceAndMove(state: MonopolyState, role: PlayerRole): Monopol
         [owner]: { ...nextState.economy[owner], cash: ownerCash },
       },
       lastEvent: `${event} 停在对方地产「${tile.name}」，支付租金 ${rent} 元${
-        hasMonopoly ? "（对方集齐同色地产，租金翻倍！）" : ""
+        houseLevel > 0 ? `（${houseLevel}级建筑）` : hasMonopoly ? "（对方集齐同色地产，租金翻倍！）" : ""
       }。`,
     };
     nextState = resolveNegativeCash(nextState, role);
@@ -364,13 +386,17 @@ export function sellPropertyToCoverDebt(state: MonopolyState, role: PlayerRole, 
   if (!player.ownedTiles.includes(tileIndex)) return state;
 
   const tile = BOARD[tileIndex];
-  const sellValue = Math.round((tile.price || 0) * 0.5);
+  const level = state.houseLevel[tileIndex] || 0;
+  const investedInHouses = UPGRADE_COST_MULTIPLIERS.slice(0, level).reduce((s, m) => s + (tile.price || 0) * m, 0);
+  const sellValue = Math.round(((tile.price || 0) + investedInHouses) * 0.5);
   const { [tileIndex]: _removed, ...restOwnership } = state.ownership;
+  const { [tileIndex]: _removedLevel, ...restHouseLevel } = state.houseLevel;
 
   let nextState: MonopolyState = {
     ...state,
     pendingDecision: null,
     ownership: restOwnership,
+    houseLevel: restHouseLevel,
     economy: {
       ...state.economy,
       [role]: {
@@ -384,4 +410,38 @@ export function sellPropertyToCoverDebt(state: MonopolyState, role: PlayerRole, 
 
   nextState = resolveNegativeCash(nextState, role);
   return finishTurn(nextState);
+}
+
+/**
+ * 给自己名下的一块地产升级（0→1→2→3级）。花费和租金倍数见 board.ts 里的
+ * UPGRADE_COST_MULTIPLIERS / UPGRADE_RENT_MULTIPLIERS。
+ *
+ * 跟"掷骰子"是两件独立的事——真实大富翁里，盖房子是在自己回合内随时可以做
+ * 的动作，不消耗/不等同于掷骰子这个动作本身，所以这里特意不调用 finishTurn，
+ * 也不检查 pendingDecision/pendingBonusRoll 之外的东西，允许在自己回合里
+ * 掷骰子前后随时升级（只要没有待处理的买地/卖地决策卡在中间）。
+ */
+export function upgradeProperty(state: MonopolyState, role: PlayerRole, tileIndex: number): MonopolyState {
+  if (state.winner || state.pendingDecision || state.currentTurn !== role) return state;
+
+  const player = state.economy[role];
+  if (!player.ownedTiles.includes(tileIndex)) return state;
+
+  const tile = BOARD[tileIndex];
+  if (tile.type !== "property" || !tile.price) return state;
+  if (!ownsFullColorGroup(state, role, tile.colorGroup)) return state;
+
+  const currentLevel = state.houseLevel[tileIndex] || 0;
+  if (currentLevel >= MAX_HOUSE_LEVEL) return state;
+
+  const cost = Math.round(tile.price * UPGRADE_COST_MULTIPLIERS[currentLevel]);
+  if (player.cash < cost) return state;
+
+  const nextLevel = currentLevel + 1;
+  return {
+    ...state,
+    economy: { ...state.economy, [role]: { ...player, cash: player.cash - cost } },
+    houseLevel: { ...state.houseLevel, [tileIndex]: nextLevel },
+    lastEvent: `${ROLE_LABEL_INTERNAL[role]}将「${tile.name}」升级到 ${nextLevel} 级，花费 ${cost} 元。`,
+  };
 }

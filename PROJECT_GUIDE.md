@@ -32,13 +32,16 @@ src/
     registry.tsx          # ★ 每个游戏的 UI 定义（名称/图标/描述/组件），给页面用
     pictionaryWords.ts    # 你画我猜词库（唯一副本，不要在别处再复制一份）
     shared/
-      Dice.tsx             # 跨游戏复用的骰子组件
-      Token.tsx             # 跨游戏复用的棋子组件
+      Dice.tsx             # 跨游戏复用的骰子组件（2D SVG）
+      Token.tsx             # 跨游戏复用的棋子组件（2D SVG）
+      Die3D.tsx              # 3D骰子，只能从 Board3D.tsx 里 import，见"真3D棋盘"章节
+      Piece3D.tsx            # 3D棋子造型（pawn形状），同上
+      useTurnReminder.ts + TurnReminderToggle.tsx  # "轮到你了"提醒
     monopoly/
-      board.ts              # 棋盘数据（格子/配色/十六进制色值）
+      board.ts              # 棋盘数据（格子/配色/十六进制色值/房屋升级花费与租金倍数）
       chanceCards.ts        # 机会卡数据
       logic.ts               # 纯游戏逻辑，不 import React
-      MonopolyGame.tsx      # 2D UI外壳（头部/玩家卡/机会卡弹窗）+ 懒加载 Board3D
+      MonopolyGame.tsx      # 2D UI外壳（头部/玩家卡/机会卡弹窗/地产升级面板）+ 懒加载 Board3D
       Board3D.tsx            # 真3D棋盘，纯展示层，见下方"真3D棋盘"章节
     flightchess/
       board.ts / logic.ts / FlightChessGame.tsx / Board3D.tsx  # 结构和 monopoly/ 完全对应
@@ -56,8 +59,6 @@ src/
     RoomScreen.tsx          # /room/:roomCode，联机对局页面
     PracticeScreen.tsx      # /practice/:gameType，单人练习页面
   App.tsx                  # 纯路由表，不写业务逻辑
-public/
-  fonts/board-cjk.woff2    # 3D棋盘用的中文字体子集，monopoly+flightchess共用，见"真3D棋盘"章节
 server.ts                 # 本地兜底模式的 Express 服务器（仅用于本地预览）
 vercel.json                # SPA 路由重写规则，删了的话线上刷新/直接访问 /room/xxx 会 404
 ```
@@ -264,6 +265,11 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key
   里 import；`Die3D.tsx` 只能从 `Board3D.tsx` 里 import（那两个文件已经在懒加载
   chunk里了），绝对不能从 `MonopolyGame.tsx`/`FlightChessGame.tsx` 这些非懒加载
   的外壳组件直接引用，否则会把 three.js 拖回主bundle。
+- `Piece3D.tsx`（2026-07新增）—— 3D棋子造型，经典"pawn"轮廓（宽底座+锥形
+  躯干+颈环+球形头），两个游戏的3D棋盘共用同一份造型，颜色各自传各自的
+  主题色（`colorMid`/`colorDark`）。**跟 Die3D.tsx 同样的引用限制**：只能从
+  `Board3D.tsx` 里 import。第一版棋子只是"球坐在小圆柱底座上"，太抽象、
+  容易被看成一坨圆球而不是棋子——换成这个之后轮廓辨识度高很多。
 - `useTurnReminder.ts` + `TurnReminderToggle.tsx`（2026-07新增）—— "轮到你了"
   提醒，四个游戏（五子棋/大富翁/飞行棋/翻牌配对）都接了。纯前端实现，不需要
   后端改动：标签页不是焦点时标题闪烁（不需要权限），配合一个可选的系统通知
@@ -323,21 +329,20 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key
    `MonopolyGame.tsx` / `FlightChessGame.tsx` 里能看到具体写法，新游戏要加
    3D直接照抄这个模式。
 
-2. **中文字体是个隐藏地雷**：drei 的 `<Text>` 不指定 `font` 时，底层
-   troika-three-text 会在运行时自动去 `cdn.jsdelivr.net` 按字符现拉字体——
-   这个CDN在国内网络环境下不一定连得上，会导致棋盘上的中文字"看不见"
-   （不是报错，是安静地渲染不出来，很难排查）。解决方式是自己生成一个只包含
-   实际用到的汉字的字体子集（用 `fonttools` 的 `pyftsubset`，源字体从
-   `@fontsource/noto-sans-sc` 包里的
-   `files/noto-sans-sc-chinese-simplified-100-normal.woff2`（Thin/100字重）
-   拿），塞进 `public/fonts/board-cjk.woff2` 随站点静态资源一起部署，然后
-   在每个 `<Text>` 上显式传 `font="/fonts/board-cjk.woff2"`。这份字体现在是
-   两个3D棋盘**共用**的一份子集（原来叫 `monopoly-board-cjk.woff2`，只有
-   大富翁在用；飞行棋3D化时把飞行棋需要的"飞行棋红蓝绿黄"7个新字也合并
-   进来，改成了现在这个更中性的文件名），一共58个汉字、10KB出头。以后
-   棋盘上要显示新的汉字，必须把两个 `Board3D.tsx` 实际用到的汉字合并去重
-   重新生成这个子集文件，不然新字符会显示不出来——`monopoly/Board3D.tsx`
-   顶部注释里有完整的重新生成命令。
+2. **中文字体曾经是个隐藏地雷，现在已经绕开了**：最早用 drei 的 `<Text>`
+   （底层 troika-three-text）配合自己生成的字体子集文件。踩过两层坑：一是
+   不指定 `font` 时troika会运行时自动去 `cdn.jsdelivr.net` 拉字体，国内网络
+   不一定连得上；二是即使自己指定了本地字体子集，troika 的 `preloadFont`
+   回调只有成功路径、没有失败路径——字体文件只要有一次加载失败或卡住（比如
+   部署时漏拷贝了这个二进制文件），对应 `<Text>` 的字体加载 Promise 就永远
+   不会 settle，一路网上抛到最近的 Suspense，导致整个3D棋盘卡在"加载中"
+   出不来（这是实际发生过的线上事故，不是理论风险）。**现在两个 `Board3D.tsx`
+   都改成了 drei 的 `<Html>`**（把真实DOM元素按3D坐标投影贴到Canvas上），
+   文字用浏览器自己的字体栈，不存在"加载"这一步，整个故障模式被连根拔掉。
+   代价是 label 变成"广告牌"式的（始终朝向相机，不随棋盘旋转）——但对地产名
+   这种UI标签而言，这反而是更好的可读性，不是妥协。`public/fonts/` 和整套
+   `pyftsubset` 字体子集化流程已经删除，不再需要维护。**以后棋盘上要加文字，
+   一律用 `<Html>`，不要再引入 `<Text>`。**
 
 3. **2D时代的"棋盘中心信息面板"（当前回合高亮+事件文字）在3D里没地方放**
    （塞进3D场景里要么被摄像机角度挡住，要么小到看不清），所以事件提示文字
@@ -345,6 +350,44 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key
    卡这些关键反馈都从这里看，不在3D棋盘本身上显示。飞行棋的"到家小路"2D
    卡片同理保留在3D棋盘下方，没有因为3D化就删掉——3D场景负责空间沉浸感，
    2D卡片负责"一眼扫过去就知道现在什么状态"，两者分工，不是互相替代。
+
+## 大富翁地产升级系统（2026-07新增）
+
+之前"简化版大富翁"是故意不做房屋升级的（`board.ts` 顶部注释原来写的是"24
+tiles, fixed rent — no house/hotel upgrades"）。用户明确要求要有"地皮→1级→
+2级→3级"这个经典大富翁的核心玩法，于是加上了，规则和数值都定义在 `board.ts`：
+
+- **前置条件**：复用已有的"集齐同色地产"判定（`ownsFullColorGroup`，现在
+  从 `logic.ts` 导出给 UI 层复用），不是另起一套规则——必须先买齐某个色组
+  的全部地产，才能开始给组内任意地块升级，跟真实大富翁"先集齐一组才能
+  盖房子"是同一个逻辑。
+- **等级**：0（空地皮，刚买下/没升级）→ 1 → 2 → 3（`MAX_HOUSE_LEVEL`），
+  每块地产各自独立计数，不是整个色组一起升。
+- **花费**：`UPGRADE_COST_MULTIPLIERS = [0.5, 0.6, 0.8]`——升到第 N 级要花
+  地产原价 × 第 N-1 项。越往后越贵，升满 3 级累计花费是原价的 1.9 倍，
+  跟真实大富翁"后面的房子比前面贵"手感一致。
+- **租金**：`UPGRADE_RENT_MULTIPLIERS = [3, 6, 10]`——升到第 N 级之后租金
+  是地块基础租金 × 第 N-1 项，不再叠加"集齐同色×2"（升级和"集齐同色未升级"
+  是两套互斥的租金规则，不会同时生效——见 `logic.ts` 的 `rollDiceAndMove`
+  里 `rentMultiplier` 的三元表达式）。
+- **什么时候能操作**：升级不是"卡住必须先处理"的阻塞式决策（跟买地/卖地
+  不一样），是自己回合内随时可以做的自由动作，`upgradeProperty()` 不调用
+  `finishTurn()`——可以掷骰子前后随便升级，不消耗/不等同于掷骰子这个动作。
+  UI 上对应 `MonopolyGame.tsx` 里常驻显示的"地产升级"面板（不是弹窗），
+  只列出"集齐同色+没到顶级"的地块，不满足条件时面板直接不显示。
+- **强制卖地时怎么算**：`sellPropertyToCoverDebt` 卖出有建筑的地产时，
+  退款 = (地产原价 + 已投入的升级花费) × 50%，不是只退地皮原价——不然
+  升级投入的钱在被逼卖地时会直接清零，跟 `netWorth()`（回合上限时判定
+  胜负用的"总资产"）对建筑价值的计算口径不一致。这两处、以及卖地弹窗里
+  显示给玩家看的金额，三处用的是同一套"已投入升级花费"计算方式，改动
+  时要三处一起改，别漏了其中一处导致界面显示和实际结算对不上。
+- **单人练习模式**：AI 也会在掷骰子前检查有没有值得升级的地产（保留200
+  现金缓冲，优先升最便宜的那块），不然人机对局里 AI 永远不会用这个机制，
+  对玩家不公平。
+- **3D视觉**：`monopoly/Board3D.tsx` 的 `UpgradeBuilding` 组件——0级不渲染
+  （空地皮），1/2级是绿房子（依次变高变大），3级是带金色尖塔的红色"酒店"，
+  配色沿用经典大富翁"绿房子/红酒店"的直觉，不跟房主主题色绑定（房主色
+  只体现在地块本身的染色上，建筑颜色统一表示"升到几级"）。
 
 ## CSS 伪3D质感（2026-07，不上 three.js 的立体化路线）
 
